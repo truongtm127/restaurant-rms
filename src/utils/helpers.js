@@ -101,3 +101,44 @@ export const getAuthErrorMessage = (code) => {
       return 'Đăng nhập thất bại. Vui lòng thử lại';
   }
 };
+
+/* ----------------------------- Image Helpers -------------------------- */
+
+// HÀM MỚI: Nén ảnh client-side bằng Canvas
+export const compressImage = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        // Tính toán kích thước mới (Max width = 800px)
+        const MAX_WIDTH = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Xuất ra file JPEG chất lượng 70%
+        canvas.toBlob((blob) => {
+          const newFile = new File([blob], file.name, {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          resolve(newFile);
+        }, 'image/jpeg', 0.7); 
+      };
+    };
+  });
+};

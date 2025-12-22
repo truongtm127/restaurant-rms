@@ -1,17 +1,16 @@
 // src/features/Menu/MenuItemModal.jsx
 import React, { useState } from 'react'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
-import { X } from 'lucide-react' // Chỉ giữ lại icon X cơ bản nhất
+import { X } from 'lucide-react'
 import { storage } from '../../firebase'
+// Import thêm hàm nén ảnh
+import { compressImage } from '../../utils/helpers'
 
 export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) {
   const isEdit = !!initial
   
-  // Khởi tạo state an toàn hơn: Kiểm tra kỹ null/undefined
   const [name, setName] = useState(initial?.name || '')
-  // Nếu không có giá thì để chuỗi rỗng
   const [price, setPrice] = useState(initial?.price !== undefined ? initial.price : '')
-  // Nếu không có danh mục thì mặc định Món chính
   const [category, setCategory] = useState(initial?.category || 'Món chính')
   const [imageURL, setImageURL] = useState(initial?.imageURL || '')
   
@@ -38,9 +37,20 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
 
   const uploadIfNeeded = async () => {
     if (!file) return imageURL
-    const path = `menu_items/${Date.now()}_${file.name}`
+    
+    // Nén ảnh trước khi upload
+    let uploadFile = file
+    try {
+      if (file.type.startsWith('image/')) {
+        uploadFile = await compressImage(file)
+      }
+    } catch (e) {
+      console.warn("Lỗi nén ảnh, sẽ dùng ảnh gốc:", e)
+    }
+
+    const path = `menu_items/${Date.now()}_${uploadFile.name}`
     const r = ref(storage, path)
-    await uploadBytes(r, file)
+    await uploadBytes(r, uploadFile)
     return await getDownloadURL(r)
   }
 
@@ -53,7 +63,7 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
       const payload = {
         name: name.trim(),
         price: Number(price),
-        category: category || 'Món chính', // Fallback an toàn
+        category: category || 'Món chính',
         is_available: true,
         imageURL: url || '',
       }
@@ -70,11 +80,9 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
       
       <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-fadeIn">
-        {/* Header */}
         <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50">
           <h2 className="text-lg font-bold text-slate-800">
             {isEdit ? 'Chỉnh sửa món' : 'Thêm món mới'}
@@ -84,10 +92,7 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-6 grid md:grid-cols-2 gap-6">
-          
-          {/* Cột trái: Form nhập liệu */}
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-slate-500 uppercase">Tên món ăn</label>
@@ -134,7 +139,6 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
             )}
           </div>
 
-          {/* Cột phải: Ảnh Preview & Upload */}
           <div className="flex flex-col gap-3">
             <label className="text-xs font-semibold text-slate-500 uppercase">Hình ảnh mô tả</label>
             
@@ -145,7 +149,6 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
               ) : (
                 <div className="text-center p-4">
                   <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center mx-auto mb-2 text-slate-500">
-                    {/* Dùng text thay vì icon ImagePlus để tránh lỗi */}
                     <span className="text-2xl">📷</span> 
                   </div>
                   <div className="text-sm text-slate-500 font-medium">Tải ảnh lên</div>
@@ -168,7 +171,6 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-6 py-4 bg-slate-50 border-t flex justify-end gap-3">
           <button 
             onClick={onClose} 
@@ -181,7 +183,6 @@ export default function MenuItemModal({ initial, onClose, onCreate, onUpdate }) 
             disabled={submitting} 
             className="px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition disabled:opacity-50"
           >
-            {/* Bỏ icon Loader2/Save để tránh lỗi */}
             {submitting ? 'Đang lưu...' : (isEdit ? 'Lưu thay đổi' : 'Thêm món mới')}
           </button>
         </div>
