@@ -51,6 +51,7 @@ src/
 
 1. Clone dự án
 git clone https://github.com/truongtm127/restaurant-rms.git
+
 cd restaurant-rms
 
 2. Cài đặt thư viện
@@ -58,7 +59,7 @@ npm install
 
 3. Cấu hình Firebase
 Mở file src/firebase.js và đảm bảo bạn đã điền đúng thông tin cấu hình Firebase của bạn:
-
+```text
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
   authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
@@ -67,7 +68,7 @@ const firebaseConfig = {
   messagingSenderId: "YOUR_SENDER_ID",
   appId: "YOUR_APP_ID"
 };
-
+```
 4. Chạy môi trường Dev
 npm run dev
 
