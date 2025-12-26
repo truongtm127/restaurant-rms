@@ -44,7 +44,7 @@ src/
 ├── App.jsx          # Component gốc & Routing
 ├── firebase.js      # Cấu hình Firebase
 └── main.jsx         # Entry point
-
+```
 ## Cài đặt và Chạy dự án
 
 Để chạy dự án này trên máy local, hãy làm theo các bước sau:
