@@ -45,13 +45,14 @@ src/
 ├── App.jsx          # Component gốc & Routing
 ├── firebase.js      # Cấu hình Firebase
 └── main.jsx         # Entry point
-⚙️ Cài đặt và Chạy dự án
+
+Cài đặt và Chạy dự án
 Để chạy dự án này trên máy local, hãy làm theo các bước sau:
 
 1. Clone dự án
 Bash
 
-git clone [https://github.com/truongtm127/restaurant-rms.git](https://github.com/truongtm127/restaurant-rms.git)
+git clone [https://github.com/truongtm127/restaurant-rms.git]
 cd restaurant-rms
 2. Cài đặt thư viện
 Bash
