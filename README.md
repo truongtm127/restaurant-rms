@@ -35,7 +35,7 @@ Dự án được phát triển bằng ReactJS (Vite) kết hợp với Firebase
 * Quản lý State: React Hooks (useState, useEffect, useContext...)
 
 ## Cấu trúc thư mục
-
+```text
 src/
 ├── assets/          # Tài nguyên tĩnh (ảnh, icon)
 ├── components/      # Các component tái sử dụng (Layout, UI, Auth)
@@ -80,3 +80,4 @@ npm run build
 
 Nếu muốn deploy lên Firebase Hosting (yêu cầu đã cài Firebase CLI):
 firebase deploy
+
