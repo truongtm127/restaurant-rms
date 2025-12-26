@@ -1,109 +1,147 @@
-// src/features/Staff/StaffModal.jsx
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { X } from 'lucide-react'
 
-export default function StaffModal({ initial, onClose, onCreate, onUpdate }) {
-  const isEdit = !!initial
-  
-  const [name, setName] = useState(initial?.name || '')
-  const [email, setEmail] = useState(initial?.email || '')
-  const [password, setPassword] = useState('')
-  
-  // Mặc định luôn là STAFF, không cần setRole nữa
-  const [role] = useState(initial?.role || 'STAFF')
-  
-  const [shift, setShift] = useState(initial?.shift || 'Sáng')
-  const [error, setError] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+export default function StaffModal({ initialData, onClose, onSave }) {
+  // 1. Khởi tạo state cho form
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    role: 'STAFF' // Mặc định là nhân viên
+  })
 
-  const validate = () => {
-    if (!name.trim()) return 'Vui lòng nhập tên'
-    if (!email.trim() || !/^\S+@\S+\.\S+$/.test(email)) return 'Email không hợp lệ'
-    
-    // Nếu là thêm mới thì bắt buộc phải có mật khẩu > 6 ký tự
-    if (!isEdit && (!password || password.length < 6)) {
-      return 'Mật khẩu phải từ 6 ký tự trở lên'
+  // 2. [QUAN TRỌNG] useEffect này giúp điền dữ liệu vào form khi bấm Sửa
+  // Nếu không có đoạn này, form sẽ luôn trống trơn dù bạn bấm Edit
+  useEffect(() => {
+    if (initialData) {
+      // Chế độ Sửa: Đổ dữ liệu cũ vào form
+      setFormData({
+        name: initialData.name || '',
+        email: initialData.email || '',
+        password: initialData.password || '',
+        role: initialData.role || 'STAFF'
+      })
+    } else {
+      // Chế độ Thêm mới: Reset form
+      setFormData({
+        name: '',
+        email: '',
+        password: '',
+        role: 'STAFF'
+      })
     }
-    
-    return ''
+  }, [initialData])
+
+  // 3. Hàm xử lý khi nhập liệu
+  const handleChange = (e) => {
+    const { name, value } = e.target
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }))
   }
 
-  const submit = async () => {
-    const msg = validate()
-    if (msg) { setError(msg); return }
-    setError(''); setSubmitting(true)
-    try {
-      const payload = { name: name.trim(), email: email.trim(), role, shift, password }
-      
-      if (isEdit) await onUpdate(initial.id, payload)
-      else await onCreate(payload)
-      
-      onClose()
-    } catch (e) {
-      setError(e.message.replace('Firebase: ', ''))
-    } finally {
-      setSubmitting(false)
-    }
+  // 4. Hàm submit form
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    // Gọi hàm onSave (được truyền từ Staff.jsx) để xử lý Lưu/Cập nhật
+    onSave(formData)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}/>
-      <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-xl p-6 space-y-5 animate-fadeIn">
-        <div className="flex items-center justify-between border-b pb-3">
-          <div className="text-lg font-bold text-slate-800">{isEdit ? 'Sửa thông tin' : 'Thêm nhân viên mới'}</div>
-          <button onClick={onClose} className="px-3 py-1 text-sm text-slate-500 hover:bg-slate-100 rounded-lg">Đóng</button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+        
+        {/* Header Modal */}
+        <div className="flex justify-between items-center p-4 border-b border-slate-100">
+          <h3 className="text-lg font-bold text-slate-800">
+            {initialData ? 'Cập nhật thông tin' : 'Thêm nhân viên mới'}
+          </h3>
+          <button 
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <X size={20} />
+          </button>
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-1 sm:col-span-2">
-            <label className="text-xs font-semibold text-slate-500 uppercase">Họ và tên</label>
-            <input value={name} onChange={e=>setName(e.target.value)} className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500"/>
-          </div>
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-4 space-y-4">
           
-          <div className="space-y-1 sm:col-span-2">
-            <label className="text-xs font-semibold text-slate-500 uppercase">Email đăng nhập</label>
-            <input 
-              value={email} 
-              onChange={e=>setEmail(e.target.value)} 
-              className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500" 
-              placeholder="vd: nhanvien@rms.vn"
-              disabled={isEdit} 
+          {/* Tên nhân viên */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Họ và tên</label>
+            <input
+              type="text"
+              name="name"
+              required
+              value={formData.name}
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              placeholder="Ví dụ: Nguyễn Văn A"
             />
           </div>
 
-          {!isEdit && (
-            <div className="space-y-1 sm:col-span-2">
-              <label className="text-xs font-semibold text-slate-500 uppercase">Mật khẩu khởi tạo</label>
-              <input 
-                type="password"
-                value={password} 
-                onChange={e=>setPassword(e.target.value)} 
-                className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500" 
-                placeholder="Nhập mật khẩu..."
-              />
-            </div>
-          )}
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Email đăng nhập</label>
+            <input
+              type="email"
+              name="email"
+              required
+              value={formData.email}
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              placeholder="email@rms.vn"
+            />
+          </div>
 
-          {/* Đã xóa phần chọn Vai trò (Role) ở đây */}
-          
-          <div className="space-y-1 sm:col-span-2">
-            <label className="text-xs font-semibold text-slate-500 uppercase">Ca làm việc</label>
-            <select value={shift} onChange={e=>setShift(e.target.value)} className="w-full border rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-emerald-500 bg-white">
-              <option value="Sáng">Sáng</option>
-              <option value="Chiều">Chiều</option>
-              <option value="Full">Full</option>
+          {/* Mật khẩu */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Mật khẩu</label>
+            <input
+              type="text"
+              name="password"
+              required
+              value={formData.password}
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-mono"
+              placeholder="Nhập mật khẩu..."
+            />
+          </div>
+
+          {/* Vai trò (Role) */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Vai trò / Phân quyền</label>
+            <select
+              name="role"
+              value={formData.role}
+              onChange={handleChange}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+            >
+              <option value="EMPLOYEE">Nhân viên</option>
+              <option value="MANAGER">Quản lý (Admin)</option>
             </select>
           </div>
-        </div>
 
-        {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{error}</div>}
+          {/* Footer Buttons */}
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-50 mt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 shadow-sm transition-colors"
+            >
+              {initialData ? 'Lưu thay đổi' : 'Tạo tài khoản'}
+            </button>
+          </div>
 
-        <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border hover:bg-slate-50 font-medium text-slate-600">Hủy</button>
-          <button onClick={submit} disabled={submitting} className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50">
-            {submitting ? 'Đang xử lý...' : (isEdit ? 'Cập nhật' : 'Tạo tài khoản')}
-          </button>
-        </div>
+        </form>
       </div>
     </div>
   )

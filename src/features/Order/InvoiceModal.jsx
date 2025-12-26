@@ -3,11 +3,16 @@ import React, { useEffect, useState } from 'react'
 import { collection, doc, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { fmtVND } from '../../utils/helpers'
+// 1. IMPORT CONFIRM MODAL
+import ConfirmModal from '../../components/UI/ConfirmModal'
 
 // Nhận thêm prop 'user'
 export default function InvoiceModal({ user, activeOrderId, activeTable, onClose, onPaid }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  
+  // 2. STATE ĐỂ BẬT/TẮT MODAL XÁC NHẬN
+  const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
     async function fetchItems() {
@@ -21,24 +26,49 @@ export default function InvoiceModal({ user, activeOrderId, activeTable, onClose
 
   const total = items.reduce((s, i) => s + (Number(i.price) * Number(i.qty)), 0)
 
-  const handlePay = async () => {
-    if (!confirm('Xác nhận thanh toán đơn hàng này?')) return
+  // 3. HÀM MỞ MODAL XÁC NHẬN (Thay thế window.confirm)
+  const handlePayClick = () => {
+    setShowConfirm(true)
+  }
 
-    // Cập nhật trạng thái đơn hàng
-    await updateDoc(doc(db, 'orders', activeOrderId), {
-      status: 'PAID',
-      total: total,
-      closedAt: serverTimestamp(),
-      // LƯU TÊN NGƯỜI THANH TOÁN (Lấy từ user đang đăng nhập)
-      paidBy: user?.name || user?.email || 'Unknown' 
-    })
-
-    onPaid()
+  // 4. HÀM THỰC HIỆN THANH TOÁN (Chạy khi bấm "Đồng ý")
+  const executePayment = async () => {
+    try {
+        // Cập nhật trạng thái đơn hàng
+        await updateDoc(doc(db, 'orders', activeOrderId), {
+          status: 'PAID',
+          total: total,
+          closedAt: serverTimestamp(),
+          // LƯU TÊN NGƯỜI THANH TOÁN
+          paidBy: user?.name || user?.email || 'Unknown' 
+        })
+    
+        // Gọi hàm onPaid (để cập nhật bàn về FREE ở component cha)
+        onPaid()
+        
+        // Đóng modal
+        setShowConfirm(false)
+    } catch (error) {
+        console.error("Lỗi thanh toán:", error)
+        alert("Có lỗi xảy ra khi thanh toán")
+    }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* 5. HIỂN THỊ CONFIRM MODAL */}
+      <ConfirmModal 
+        isOpen={showConfirm}
+        onClose={() => setShowConfirm(false)}
+        onConfirm={executePayment}
+        title="Xác nhận thanh toán"
+        message={`Bạn có chắc chắn muốn xác nhận đã thu ${fmtVND(total)} cho Bàn ${activeTable?.name}? Hành động này sẽ đóng đơn hàng và trả bàn về trạng thái Trống.`}
+      />
+
+      {/* Lớp nền mờ của InvoiceModal */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      
+      {/* Nội dung hóa đơn */}
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden animate-fadeIn">
         
         <div className="bg-emerald-600 p-4 text-white text-center">
@@ -79,7 +109,12 @@ export default function InvoiceModal({ user, activeOrderId, activeTable, onClose
           <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-white transition">
             Quay lại
           </button>
-          <button onClick={handlePay} className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition">
+          
+          {/* Nút này giờ gọi handlePayClick thay vì chạy logic trực tiếp */}
+          <button 
+            onClick={handlePayClick} 
+            className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition"
+          >
             Đã thu tiền
           </button>
         </div>

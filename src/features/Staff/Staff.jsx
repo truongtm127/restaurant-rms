@@ -1,154 +1,225 @@
-// src/features/Staff/Staff.jsx
 import React, { useEffect, useState } from 'react'
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc } from 'firebase/firestore'
-// Import các hàm cần thiết để tạo user bằng App phụ
+import { collection, onSnapshot, deleteDoc, doc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
+// 1. Import thêm các hàm updatePassword, updateEmail, signInWithEmailAndPassword
 import { initializeApp, getApp, deleteApp } from 'firebase/app'
-import { getAuth, createUserWithEmailAndPassword, signOut } from 'firebase/auth'
+import { getAuth, createUserWithEmailAndPassword, signOut, signInWithEmailAndPassword, updatePassword, updateEmail } from 'firebase/auth'
 import { db } from '../../firebase'
+import { Plus, Trash2, Edit, Shield, User } from 'lucide-react'
 import StaffModal from './StaffModal'
+import ConfirmModal from '../../components/UI/ConfirmModal'
 
-export default function Staff({ user }) {
-  const [list, setList] = useState([])
+export default function Staff() {
+  const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
-  const [editing, setEditing] = useState(null) 
+  const [editingStaff, setEditingStaff] = useState(null)
 
-  // 1. Lấy danh sách nhân viên realtime
+  const [confirmConfig, setConfirmConfig] = useState({
+    isOpen: false, title: '', message: '', action: null
+  })
+
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'staff'), (snap) => {
-      const arr = []
-      snap.forEach(d => arr.push({ id: d.id, ...d.data() }))
-      // Sắp xếp theo tên
-      arr.sort((a,b)=> (a.name||'').localeCompare(b.name||''))
-      setList(arr); setLoading(false)
+    const unsub = onSnapshot(collection(db, 'users'), (snap) => {
+      const list = []
+      snap.forEach(d => list.push({ id: d.id, ...d.data() }))
+      setStaff(list)
+      setLoading(false)
     })
     return () => unsub()
   }, [])
 
-  // Chặn truy cập nếu không phải Manager
-  if (user?.role !== 'MANAGER') {
-    return <div className="p-6 text-center text-slate-500">Bạn không có quyền truy cập trang này.</div>
-  }
-
-  const openAdd = () => { setEditing(null); setShowModal(true) }
-  const openEdit = (s) => { setEditing(s); setShowModal(true) }
-  const closeModal = () => { setEditing(null); setShowModal(false) }
-
-  // --- 2. HÀM TẠO NHÂN VIÊN (Kèm tạo tài khoản đăng nhập) ---
-  const handleCreate = async (payload) => {
-    // Khởi tạo một App phụ để thao tác Auth mà không ảnh hưởng Admin hiện tại
-    const secondaryApp = initializeApp(getApp().options, "Secondary")
-    const secondaryAuth = getAuth(secondaryApp)
+  // --- HÀM XỬ LÝ LƯU (ĐÃ NÂNG CẤP ĐỔI MẬT KHẨU) ---
+  const handleSave = async (data) => {
+    let secondaryApp = null;
+    
+    // Tạo tên app ngẫu nhiên để tránh trùng lặp
+    const appName = "SecondaryApp-" + Date.now();
 
     try {
-      const { password, ...firestoreData } = payload
+      if (editingStaff) {
+        // --- TRƯỜNG HỢP 1: CẬP NHẬT (UPDATE) ---
+        
+        // Kiểm tra xem có thay đổi thông tin quan trọng không
+        const isPasswordChanged = data.password !== editingStaff.password;
+        const isEmailChanged = data.email !== editingStaff.email;
+
+        if (isPasswordChanged || isEmailChanged) {
+           // Nếu có đổi mật khẩu hoặc email -> Cần đăng nhập vào App phụ để cập nhật Auth
+           
+           // 1. Khởi tạo App phụ
+           secondaryApp = initializeApp(getApp().options, appName);
+           const secondaryAuth = getAuth(secondaryApp);
+
+           // 2. Đăng nhập bằng tài khoản CŨ (dựa vào thông tin đang lưu trong Firestore)
+           // Lưu ý: Nếu password trong Firestore bị sai so với thực tế thì bước này sẽ lỗi
+           const userCredential = await signInWithEmailAndPassword(
+             secondaryAuth, 
+             editingStaff.email, 
+             editingStaff.password
+           );
+           const user = userCredential.user;
+
+           // 3. Thực hiện đổi mật khẩu (nếu có)
+           if (isPasswordChanged) {
+             await updatePassword(user, data.password);
+           }
+
+           // 4. Thực hiện đổi email (nếu có) - Làm sau cùng
+           if (isEmailChanged) {
+             await updateEmail(user, data.email);
+           }
+
+           // 5. Đăng xuất
+           await signOut(secondaryAuth);
+        }
+
+        // 6. Cập nhật thông tin mới vào Firestore (bao gồm cả mật khẩu mới để lần sau còn đổi được)
+        await updateDoc(doc(db, 'users', editingStaff.id), data)
+
+      } else {
+        // --- TRƯỜNG HỢP 2: TẠO MỚI (CREATE) ---
+        
+        secondaryApp = initializeApp(getApp().options, appName);
+        const secondaryAuth = getAuth(secondaryApp);
+
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, data.email, data.password);
+        const newUser = userCredential.user;
+
+        await signOut(secondaryAuth);
+
+        await setDoc(doc(db, 'users', newUser.uid), {
+          ...data,
+          uid: newUser.uid,
+          createdAt: serverTimestamp()
+        });
+      }
       
-      // Tạo user trên Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, payload.email, password)
-      const uid = userCredential.user.uid
-
-      // Lưu thông tin vào Firestore (Lưu kèm uid để sau này xóa được)
-      await addDoc(collection(db, 'staff'), {
-        ...firestoreData,
-        uid: uid, 
-        createdAt: new Date()
-      })
-
-      // Đăng xuất và xóa App phụ
-      await signOut(secondaryAuth)
-      deleteApp(secondaryApp)
+      setShowModal(false)
+      setEditingStaff(null)
 
     } catch (error) {
-      deleteApp(secondaryApp) // Dọn dẹp app phụ nếu lỗi
-      if (error.code === 'auth/email-already-in-use') {
-        throw new Error('Email này đã được sử dụng!')
+      console.error("Lỗi:", error)
+      if (error.code === 'auth/wrong-password') {
+        alert("Lỗi: Mật khẩu cũ lưu trong hệ thống không khớp với mật khẩu thực tế của user này. Không thể cập nhật.")
+      } else if (error.code === 'auth/email-already-in-use') {
+        alert("Email này đã được sử dụng!")
+      } else if (error.code === 'auth/requires-recent-login') {
+        alert("Bảo mật: Cần đăng nhập lại để thực hiện hành động này.")
+      } else {
+        alert("Lỗi: " + error.message)
       }
-      throw error
+    } finally {
+      // Dọn dẹp App phụ
+      if (secondaryApp) {
+        await deleteApp(secondaryApp);
+      }
     }
   }
 
-  // --- 3. HÀM CẬP NHẬT THÔNG TIN ---
-  const handleUpdate = async (id, payload) => { 
-    // Không cập nhật password/email ở đây vì phức tạp, chỉ sửa thông tin hiển thị
-    const { password, ...dataToUpdate } = payload
-    await updateDoc(doc(db, 'staff', id), dataToUpdate) 
-  }
-
-  // --- 4. HÀM XÓA NHÂN VIÊN (Chặn đăng nhập) ---
-  const handleDelete = async (staff) => {
-    if (!confirm(`CẢNH BÁO: Bạn có chắc muốn xóa nhân viên "${staff.name}"? \n\nHành động này sẽ:\n1. Xóa khỏi danh sách nhân viên.\n2. Chặn quyền đăng nhập của họ ngay lập tức.`)) return
-    
-    try {
-      // Xóa khỏi bảng staff (để danh sách biến mất)
-      await deleteDoc(doc(db, 'staff', staff.id))
-
-      // Xóa khỏi bảng users (để file App.jsx chặn đăng nhập)
-      if (staff.uid) {
-        await deleteDoc(doc(db, 'users', staff.uid))
+  const handleDeleteClick = (s) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Xóa nhân viên',
+      message: `Bạn có chắc chắn muốn xóa nhân viên "${s.name}"? (Lưu ý: Tài khoản đăng nhập cần xóa thủ công trong trang Admin Firebase)`,
+      action: async () => {
+        try {
+          await deleteDoc(doc(db, 'users', s.id))
+        } catch (error) {
+          console.error("Lỗi xóa:", error)
+          alert("Không thể xóa nhân viên này.")
+        }
       }
-    } catch (e) {
-      console.error(e)
-      alert("Lỗi khi xóa dữ liệu!")
-    }
+    })
   }
 
   return (
-    <div className="space-y-4 animate-fadeIn">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 animate-fadeIn">
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmConfig.action}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+      />
+
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Quản lý nhân viên</h2>
-          <p className="text-sm text-slate-500">Tạo tài khoản và phân quyền truy cập</p>
+          <p className="text-sm text-slate-500">Danh sách tài khoản truy cập hệ thống</p>
         </div>
-        <button onClick={openAdd} className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 shadow-sm shadow-emerald-200 transition">
-          + Thêm nhân viên
+        <button 
+          onClick={() => { setEditingStaff(null); setShowModal(true) }}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 shadow-sm transition-transform active:scale-95"
+        >
+          <Plus size={18} /> Thêm nhân viên
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50 text-left border-b border-slate-200 text-slate-500">
-              <th className="p-4 font-semibold">Họ tên</th>
-              <th className="p-4 font-semibold">Email</th>
-              <th className="p-4 font-semibold">Vai trò</th>
-              <th className="p-4 font-semibold">Ca làm</th>
-              <th className="p-4 text-right font-semibold">Hành động</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {loading ? (
-              <tr><td className="p-6 text-center text-slate-400" colSpan={5}>Đang tải danh sách...</td></tr>
-            ) : list.length === 0 ? (
-              <tr><td className="p-6 text-center text-slate-400" colSpan={5}>Chưa có nhân viên nào</td></tr>
-            ) : list.map(s => (
-              <tr key={s.id} className="hover:bg-slate-50 transition">
-                <td className="p-4 font-medium text-slate-700">{s.name}</td>
-                <td className="p-4 text-slate-500">{s.email}</td>
-                <td className="p-4">
-                  <span className={`px-2 py-1 rounded text-xs font-bold ${
-                    s.role==='MANAGER' ? 'bg-purple-100 text-purple-700' :
-                    s.role==='CASHIER' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {s.role}
-                  </span>
-                </td>
-                <td className="p-4 text-slate-600">{s.shift}</td>
-                <td className="p-4 text-right">
-                  <button onClick={()=>openEdit(s)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-white hover:border-slate-300 font-medium mr-2 transition">
-                    Sửa
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {loading ? (
+           <div className="col-span-full text-center py-10 text-slate-500">Đang tải dữ liệu...</div>
+        ) : staff.length === 0 ? (
+           <div className="col-span-full text-center py-10 text-slate-500">Chưa có nhân viên nào.</div>
+        ) : (
+          staff.map(s => (
+            <div key={s.id} className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${s.role === 'MANAGER' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+                    {s.role === 'MANAGER' ? <Shield size={20}/> : <User size={20}/>}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-slate-800">{s.name}</h3>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      s.role === 'MANAGER' 
+                        ? 'bg-purple-50 text-purple-700 border border-purple-100' 
+                        : 'bg-blue-50 text-blue-700 border border-blue-100'
+                    }`}>
+                      {s.role === 'MANAGER' ? 'Quản lý' : 'Nhân viên'}
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="flex gap-1">
+                  <button 
+                    onClick={() => { setEditingStaff(s); setShowModal(true) }}
+                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Chỉnh sửa"
+                  >
+                    <Edit size={16} />
                   </button>
-                  <button onClick={()=>handleDelete(s)} className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 font-medium transition">
-                    Xóa
+                  <button 
+                    onClick={() => handleDeleteClick(s)}
+                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                    title="Xóa"
+                  >
+                    <Trash2 size={16} />
                   </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </div>
+              </div>
+
+              <div className="space-y-1 text-sm text-slate-600 pl-1">
+                <div className="flex gap-2">
+                  <span className="w-16 text-slate-400">Email:</span>
+                  <span className="font-medium">{s.email}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="w-16 text-slate-400">Mật khẩu:</span>
+                  {/* Hiển thị mật khẩu để Admin dễ quản lý (theo yêu cầu của bạn) */}
+                  <span className="font-mono bg-slate-100 px-1 rounded text-xs">{s.password}</span>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
       {showModal && (
-        <StaffModal initial={editing} onClose={closeModal} onCreate={handleCreate} onUpdate={handleUpdate}/>
+        <StaffModal 
+          initialData={editingStaff} 
+          onClose={() => { setShowModal(false); setEditingStaff(null) }} 
+          onSave={handleSave} 
+        />
       )}
     </div>
   )

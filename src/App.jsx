@@ -9,14 +9,14 @@ import { auth, db } from './firebase'
 import Shell from './components/Layout/Shell'
 import Login from './components/Auth/Login'
 
-// Features (Các màn hình chức năng)
+// Features
 import Dashboard from './features/Dashboard/Dashboard'
 import OrderTables from './features/Order/OrderTables'
 import Menu from './features/Menu/Menu'
 import Staff from './features/Staff/Staff'
 import Reports from './features/Reports/Reports'
 
-// Danh sách email admin cứng (Fallback nếu chưa có DB)
+// Danh sách email admin cứng
 const MANAGER_EMAILS = ['admin@rms.vn']
 
 export default function App() {
@@ -24,7 +24,7 @@ export default function App() {
   const [route, setRoute] = useState('dashboard')
   const [booting, setBooting] = useState(true)
 
-  // State "Lifted" để giữ trạng thái khi chuyển giữa chọn bàn và chọn món
+  // State "Lifted"
   const [activeTable, setActiveTable] = useState(null)
   const [activeOrderId, setActiveOrderId] = useState(null)
 
@@ -38,7 +38,7 @@ export default function App() {
           return
         }
 
-        // Kiểm tra trong bảng 'users' (Bảng phân quyền)
+        // Kiểm tra trong bảng 'users'
         const userRef = doc(db, 'users', u.uid)
         const userSnap = await getDoc(userRef)
 
@@ -46,25 +46,23 @@ export default function App() {
         let finalRole = 'STAFF'
 
         if (userSnap.exists()) {
-          // A. Người dùng cũ: Lấy thông tin từ bảng users
+          // A. Người dùng cũ
           const data = userSnap.data()
           finalName = data.name || u.email.split('@')[0]
           finalRole = data.role || 'STAFF'
           
           setUser({ uid: u.uid, email: u.email, role: finalRole, name: finalName })
+          setRoute('dashboard') // <--- [THÊM MỚI] Reset về Dashboard
         } else {
-          // B. Người dùng mới (Lần đầu đăng nhập):
-          // Tìm xem email này có trong bảng 'staff' không (do Admin tạo trước đó)
+          // B. Người dùng mới (Check trong bảng Staff)
           const qStaff = query(collection(db, 'staff'), where('email', '==', u.email))
           const staffSnap = await getDocs(qStaff)
 
           if (!staffSnap.empty) {
-            // -> Tìm thấy trong Staff: Đồng bộ thông tin sang bảng Users
             const staffData = staffSnap.docs[0].data()
             finalName = staffData.name
             finalRole = staffData.role
 
-            // Lưu profile vào users để lần sau truy cập nhanh hơn
             await setDoc(userRef, { 
               email: u.email, 
               role: finalRole, 
@@ -72,19 +70,18 @@ export default function App() {
             }, { merge: true })
 
             setUser({ uid: u.uid, email: u.email, role: finalRole, name: finalName })
+            setRoute('dashboard') // <--- [THÊM MỚI] Reset về Dashboard
           } else {
-            // -> Không tìm thấy trong Staff cũng không có trong Users
-            // Kiểm tra xem có phải Admin cứng không
+            // C. Admin cứng
             const isManager = MANAGER_EMAILS.includes(String(u.email || '').toLowerCase())
 
             if (isManager) {
-              // Là Admin gốc -> Cho phép vào
               finalName = 'Admin'
               finalRole = 'MANAGER'
               await setDoc(userRef, { email: u.email, role: 'MANAGER', name: 'Admin' }, { merge: true })
               setUser({ uid: u.uid, email: u.email, role: 'MANAGER', name: 'Admin' })
+              setRoute('dashboard') // <--- [THÊM MỚI] Reset về Dashboard
             } else {
-              // C. KHÔNG HỢP LỆ (Đã bị xóa hoặc không có quyền): Cưỡng chế đăng xuất
               await signOut(auth)
               alert("Tài khoản của bạn không tồn tại hoặc đã bị xóa khỏi hệ thống.")
               setUser(null)
@@ -93,8 +90,8 @@ export default function App() {
         }
       } catch (e) {
         console.warn('Login check failed:', e)
-        // Fallback an toàn nếu lỗi mạng
         setUser({ uid: u?.uid, email: u?.email || 'user', role: 'STAFF', name: 'Nhân viên' })
+        setRoute('dashboard') // <--- [THÊM MỚI] Fallback cũng về Dashboard
       } finally {
         setBooting(false)
       }
@@ -139,7 +136,7 @@ export default function App() {
         {route === 'order' && (
           <PageTransition k="order">
             <OrderTables
-              user={user} // Truyền user để lưu tên người tạo đơn
+              user={user}
               setRoute={setRoute}
               setActiveTable={setActiveTable}
               setActiveOrderId={setActiveOrderId}
@@ -150,7 +147,7 @@ export default function App() {
         {route === 'menu' && (
           <PageTransition k="menu">
             <Menu
-              user={user} // Truyền user để phân quyền Manager và lưu tên người thanh toán
+              user={user}
               activeTable={activeTable}
               activeOrderId={activeOrderId}
               setActiveTable={setActiveTable}

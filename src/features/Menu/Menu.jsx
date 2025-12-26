@@ -6,6 +6,8 @@ import { db } from '../../firebase'
 import ItemCard from './ItemCard'
 import MenuItemModal from './MenuItemModal'
 import InvoiceModal from '../Order/InvoiceModal'
+// 1. IMPORT MODAL XÁC NHẬN
+import ConfirmModal from '../../components/UI/ConfirmModal' 
 
 export default function Menu({ user, activeTable, activeOrderId, setActiveTable, setActiveOrderId, setRoute }) {
   // --- Data (menu) ---
@@ -27,6 +29,19 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
   const [showInvoice, setShowInvoice] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState(null)
+
+  // --- 2. STATE CHO CONFIRM MODAL ---
+  const [confirmConfig, setConfirmConfig] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    action: null // Hàm sẽ chạy khi bấm "Đồng ý"
+  })
+
+  // Hàm helper để mở modal nhanh
+  const openConfirm = (title, message, action) => {
+    setConfirmConfig({ isOpen: true, title, message, action })
+  }
 
   // Tải 100 món một lúc để hiển thị đầy đủ
   const pageSize = 100 
@@ -68,7 +83,6 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
 
   // --- Navigation Action ---
   const handleBackToOrder = () => {
-    // Xóa state active để quay về màn hình chọn bàn
     setActiveTable(null)
     setActiveOrderId(null)
     setRoute('order')
@@ -91,15 +105,21 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
     await loadPage(true)
   }
 
-  const handleDelete = async (m) => {
-    if (!confirm(`Xóa món "${m.name}"?`)) return
-    try {
-      await deleteDoc(doc(db, 'menu_items', m.id))
-      await loadPage(true)
-    } catch (e) {
-      console.error("Delete error:", e)
-      alert("Xóa thất bại! Vui lòng thử lại.")
-    }
+  // --- 3. SỬA HÀM XÓA MÓN TRONG MENU (QUẢN LÝ) ---
+  const handleDelete = (m) => {
+    openConfirm(
+        "Xóa thực đơn",
+        `Bạn có chắc chắn muốn xóa món "${m.name}" khỏi thực đơn không?`,
+        async () => {
+            try {
+                await deleteDoc(doc(db, 'menu_items', m.id))
+                await loadPage(true)
+            } catch (e) {
+                console.error("Delete error:", e)
+                alert("Xóa thất bại! Vui lòng thử lại.")
+            }
+        }
+    )
   }
 
   // Add to order
@@ -124,18 +144,49 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
 
   // Cart actions
   const cartTotal = orderItems.reduce((s,i)=> s + Number(i.price||0) * Number(i.qty||1), 0)
+  
   const changeQty = async (item, delta) => {
     if (!activeOrderId) return
     const next = Math.max(1, Number(item.qty || 1) + delta)
     await updateDoc(doc(db, 'orders', activeOrderId, 'items', item.id), { qty: next })
   }
-  const removeItem = async (item) => {
+
+  // --- 4. SỬA HÀM XÓA MÓN KHỎI GIỎ HÀNG & LOGIC TRẢ BÀN ---
+  const removeItem = (item) => {
     if (!activeOrderId) return
-    if (!confirm(`Xoá ${item.name}?`)) return
-    await deleteDoc(doc(db, 'orders', activeOrderId, 'items', item.id))
+
+    // Logic kiểm tra xem đây có phải là món cuối cùng không
+    const isLastItem = orderItems.length <= 1;
+
+    if (isLastItem) {
+        // Nếu là món cuối cùng -> Hỏi Hủy đơn & Trả bàn
+        openConfirm(
+            "Hủy đơn & Trả bàn",
+            "Đây là món cuối cùng. Bạn có muốn hủy đơn hàng này và trả bàn về trạng thái TRỐNG không?",
+            async () => {
+                // Xóa món cuối
+                await deleteDoc(doc(db, 'orders', activeOrderId, 'items', item.id))
+                // Xóa đơn hàng cha
+                await deleteDoc(doc(db, 'orders', activeOrderId));
+                // Trả bàn về FREE
+                await updateDoc(doc(db, 'tables', activeTable.id), { status: 'FREE' });
+                // Quay về màn hình bàn
+                handleBackToOrder();
+            }
+        );
+    } else {
+        // Nếu không phải món cuối -> Hỏi xóa bình thường
+        openConfirm(
+            "Xóa món",
+            `Bạn muốn xóa món "${item.name}" khỏi giỏ hàng?`,
+            async () => {
+                await deleteDoc(doc(db, 'orders', activeOrderId, 'items', item.id))
+            }
+        );
+    }
   }
 
-  // Filter
+  // Filter logic...
   const categories = useMemo(() => {
     const set = new Set(items.map(x => x.category || 'Khác'))
     return ['Tất cả', ...Array.from(set)]
@@ -173,6 +224,15 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
 
   return (
     <div className="space-y-4">
+      {/* 5. HIỂN THỊ MODAL CONFIRM */}
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen}
+        onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmConfig.action}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+      />
+
       {/* THANH ĐIỀU HƯỚNG BÀN & NÚT THOÁT */}
       {activeTable && (
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm animate-fadeIn">
@@ -187,7 +247,6 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
           </div>
           
           <div className="flex gap-2 w-full sm:w-auto justify-end">
-             {/* Nút Kết thúc gọi món (Quay về màn hình chọn bàn) */}
              <button 
                onClick={handleBackToOrder}
                className="flex-1 sm:flex-none px-4 py-2 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 shadow-sm shadow-emerald-200 transition flex items-center justify-center gap-2"
@@ -202,7 +261,7 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
       {/* Modal Hóa đơn */}
       {showInvoice && (
         <InvoiceModal
-          user={user} // Truyền user xuống để lưu tên người thanh toán (paidBy)
+          user={user}
           activeOrderId={activeOrderId}
           activeTable={activeTable}
           onClose={() => setShowInvoice(false)}
@@ -269,7 +328,6 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
             <option value="priceDesc">Giá giảm</option>
           </select>
 
-          {/* CHỈ MANAGER MỚI THẤY NÚT THÊM */}
           {isManager && (
             <button onClick={openAdd} className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 flex items-center gap-1 font-medium whitespace-nowrap shadow-sm">
               <Plus className="w-3.5 h-3.5"/> Thêm
@@ -278,14 +336,12 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
         </div>
       </div>
 
-      {/* Danh mục */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
         {categories.map(c => (
           <Chip key={c} active={category===c} onClick={()=>setCategory(c)}>{c}</Chip>
         ))}
       </div>
 
-      {/* LƯỚI SẢN PHẨM: 8 CỘT (PC) */}
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
         {loading && items.length === 0 ? (
           Array.from({length:16}).map((_,i)=><SkeletonCard key={i}/>)
@@ -297,10 +353,10 @@ export default function Menu({ user, activeTable, activeOrderId, setActiveTable,
               key={m.id} 
               m={m} 
               onEdit={openEdit} 
-              onDelete={handleDelete} 
+              onDelete={handleDelete} // Đã dùng hàm handleDelete mới
               onAdd={addToOrder} 
               canAdd={!!activeOrderId}
-              canManage={isManager} // Truyền quyền quản lý xuống
+              canManage={isManager} 
             />
           ))
         )}
