@@ -1,3 +1,4 @@
+// src/features/Staff/StaffModal.jsx
 import React, { useState, useEffect } from 'react'
 import { X } from 'lucide-react'
 
@@ -7,11 +8,10 @@ export default function StaffModal({ initialData, onClose, onSave }) {
     name: '',
     email: '',
     password: '',
-    role: 'STAFF' // Mặc định là nhân viên
+    role: 'STAFF' // Mặc định là nhân viên phục vụ
   })
 
-  // 2. [QUAN TRỌNG] useEffect này giúp điền dữ liệu vào form khi bấm Sửa
-  // Nếu không có đoạn này, form sẽ luôn trống trơn dù bạn bấm Edit
+  // 2. Load dữ liệu khi sửa
   useEffect(() => {
     if (initialData) {
       // Chế độ Sửa: Đổ dữ liệu cũ vào form
@@ -44,7 +44,6 @@ export default function StaffModal({ initialData, onClose, onSave }) {
   // 4. Hàm submit form
   const handleSubmit = (e) => {
     e.preventDefault()
-    // Gọi hàm onSave (được truyền từ Staff.jsx) để xử lý Lưu/Cập nhật
     onSave(formData)
   }
 
@@ -53,9 +52,9 @@ export default function StaffModal({ initialData, onClose, onSave }) {
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
         
         {/* Header Modal */}
-        <div className="flex justify-between items-center p-4 border-b border-slate-100">
+        <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
           <h3 className="text-lg font-bold text-slate-800">
-            {initialData ? 'Cập nhật thông tin' : 'Thêm nhân viên mới'}
+            {initialData ? 'Cập nhật nhân viên' : 'Thêm nhân viên mới'}
           </h3>
           <button 
             onClick={onClose}
@@ -66,7 +65,7 @@ export default function StaffModal({ initialData, onClose, onSave }) {
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
           
           {/* Tên nhân viên */}
           <div>
@@ -89,10 +88,12 @@ export default function StaffModal({ initialData, onClose, onSave }) {
               type="email"
               name="email"
               required
+              // Nếu đang sửa thì không cho đổi email để tránh lỗi đồng bộ Auth
+              disabled={!!initialData} 
               value={formData.email}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-              placeholder="email@rms.vn"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all disabled:bg-slate-100 disabled:text-slate-500"
+              placeholder="nhanvien@rms.vn"
             />
           </div>
 
@@ -110,18 +111,22 @@ export default function StaffModal({ initialData, onClose, onSave }) {
             />
           </div>
 
-          {/* Vai trò (Role) */}
+          {/* Vai trò (Role) - CHỈ CÒN 2 LỰA CHỌN */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Vai trò / Phân quyền</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Vai trò / Nhiệm vụ</label>
             <select
               name="role"
               value={formData.role}
               onChange={handleChange}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white cursor-pointer"
             >
-              <option value="EMPLOYEE">Nhân viên</option>
-              <option value="MANAGER">Quản lý (Admin)</option>
+              <option value="STAFF">Nhân viên Phục vụ (Order)</option>
+              <option value="KITCHEN">Nhân viên Bếp (Nấu ăn)</option>
             </select>
+            <p className="text-xs text-slate-500 mt-1 italic">
+              * Phục vụ: Dùng cho nhân viên chạy bàn, gọi món. <br/>
+              * Bếp: Dùng cho đầu bếp xem đơn hàng cần làm.
+            </p>
           </div>
 
           {/* Footer Buttons */}
@@ -131,13 +136,13 @@ export default function StaffModal({ initialData, onClose, onSave }) {
               onClick={onClose}
               className="px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
             >
-              Hủy
+              Hủy bỏ
             </button>
             <button
               type="submit"
               className="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 shadow-sm transition-colors"
             >
-              {initialData ? 'Lưu thay đổi' : 'Tạo tài khoản'}
+              {initialData ? 'Lưu thay đổi' : 'Tạo nhân viên'}
             </button>
           </div>
 

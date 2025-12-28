@@ -39,7 +39,7 @@ Dự án được phát triển bằng ReactJS (Vite) kết hợp với Firebase
 src/
 ├── assets/          # Tài nguyên tĩnh (ảnh, icon)
 ├── components/      # Các component tái sử dụng (Layout, UI, Auth)
-├── features/        # Các chức năng chính (Dashboard, Order, Menu, Staff, Reports)
+├── features/        # Các chức năng chính (Dashboard, Order, Kitchen, Menu, Staff, Reports)
 ├── utils/           # Các hàm tiện ích (helpers)
 ├── App.jsx          # Component gốc & Routing
 ├── firebase.js      # Cấu hình Firebase
@@ -72,13 +72,4 @@ const firebaseConfig = {
 4. Chạy môi trường Dev
 npm run dev
 
-Truy cập đường dẫn hiển thị trên terminal (thường là http://localhost:5173) để xem ứng dụng.
-
-## Build & Deploy
-
-Để đóng gói ứng dụng cho môi trường production:
-npm run build
-
-Nếu muốn deploy lên Firebase Hosting (yêu cầu đã cài Firebase CLI):
-firebase deploy
 

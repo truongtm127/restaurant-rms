@@ -15,6 +15,8 @@ import OrderTables from './features/Order/OrderTables'
 import Menu from './features/Menu/Menu'
 import Staff from './features/Staff/Staff'
 import Reports from './features/Reports/Reports'
+// --- 1. IMPORT COMPONENT BẾP ---
+import Kitchen from './features/Kitchen/Kitchen'
 
 // Danh sách email admin cứng
 const MANAGER_EMAILS = ['admin@rms.vn']
@@ -28,7 +30,7 @@ export default function App() {
   const [activeTable, setActiveTable] = useState(null)
   const [activeOrderId, setActiveOrderId] = useState(null)
 
-  // --- 1. LẮNG NGHE TRẠNG THÁI ĐĂNG NHẬP ---
+  // --- LẮNG NGHE TRẠNG THÁI ĐĂNG NHẬP ---
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       try {
@@ -52,7 +54,7 @@ export default function App() {
           finalRole = data.role || 'STAFF'
           
           setUser({ uid: u.uid, email: u.email, role: finalRole, name: finalName })
-          setRoute('dashboard') // <--- [THÊM MỚI] Reset về Dashboard
+          setRoute('dashboard') // Reset về Dashboard
         } else {
           // B. Người dùng mới (Check trong bảng Staff)
           const qStaff = query(collection(db, 'staff'), where('email', '==', u.email))
@@ -70,7 +72,7 @@ export default function App() {
             }, { merge: true })
 
             setUser({ uid: u.uid, email: u.email, role: finalRole, name: finalName })
-            setRoute('dashboard') // <--- [THÊM MỚI] Reset về Dashboard
+            setRoute('dashboard') // Reset về Dashboard
           } else {
             // C. Admin cứng
             const isManager = MANAGER_EMAILS.includes(String(u.email || '').toLowerCase())
@@ -80,7 +82,7 @@ export default function App() {
               finalRole = 'MANAGER'
               await setDoc(userRef, { email: u.email, role: 'MANAGER', name: 'Admin' }, { merge: true })
               setUser({ uid: u.uid, email: u.email, role: 'MANAGER', name: 'Admin' })
-              setRoute('dashboard') // <--- [THÊM MỚI] Reset về Dashboard
+              setRoute('dashboard') // Reset về Dashboard
             } else {
               await signOut(auth)
               alert("Tài khoản của bạn không tồn tại hoặc đã bị xóa khỏi hệ thống.")
@@ -91,7 +93,7 @@ export default function App() {
       } catch (e) {
         console.warn('Login check failed:', e)
         setUser({ uid: u?.uid, email: u?.email || 'user', role: 'STAFF', name: 'Nhân viên' })
-        setRoute('dashboard') // <--- [THÊM MỚI] Fallback cũng về Dashboard
+        setRoute('dashboard') // Fallback cũng về Dashboard
       } finally {
         setBooting(false)
       }
@@ -99,7 +101,7 @@ export default function App() {
     return () => unsub()
   }, [])
 
-  // --- 2. MÀN HÌNH CHỜ & LOGIN ---
+  // --- MÀN HÌNH CHỜ & LOGIN ---
   if (booting) return (
     <div className="min-h-screen grid place-items-center bg-slate-50 text-slate-500 font-medium animate-pulse">
       Đang khởi tạo hệ thống RMS...
@@ -108,7 +110,7 @@ export default function App() {
   
   if (!user) return <Login />
 
-  // --- 3. HIỆU ỨNG CHUYỂN TRANG ---
+  // --- HIỆU ỨNG CHUYỂN TRANG ---
   const PageTransition = ({ children, k }) => (
     <motion.div 
       key={k} 
@@ -122,7 +124,7 @@ export default function App() {
     </motion.div>
   )
 
-  // --- 4. RENDER GIAO DIỆN CHÍNH ---
+  // --- RENDER GIAO DIỆN CHÍNH ---
   return (
     <Shell user={user} route={route} setRoute={setRoute} onLogout={() => signOut(auth)}>
       <AnimatePresence mode="wait">
@@ -130,6 +132,13 @@ export default function App() {
         {route === 'dashboard' && (
           <PageTransition k="dash">
             <Dashboard />
+          </PageTransition>
+        )}
+
+        {/* --- 2. THÊM ROUTE CHO BẾP --- */}
+        {route === 'kitchen' && (
+          <PageTransition k="kitchen">
+            <Kitchen user={user} />
           </PageTransition>
         )}
 

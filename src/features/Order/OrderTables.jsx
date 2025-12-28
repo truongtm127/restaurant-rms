@@ -1,28 +1,31 @@
 // src/features/Order/OrderTables.jsx
 import React, { useEffect, useMemo, useState } from 'react'
-import { collection, onSnapshot, addDoc, doc, setDoc, query, where, getDocs, serverTimestamp } from 'firebase/firestore'
+import { collection, onSnapshot, addDoc, doc, setDoc, query, where, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { Search, User } from 'lucide-react'
 import { db } from '../../firebase'
 import StatusChip from '../../components/UI/StatusChip'
 
-// Nhận thêm prop 'user'
 export default function OrderTables({ user, setRoute, setActiveTable, setActiveOrderId }) {
   const [q, setQ] = useState('')
   const [tables, setTables] = useState([])
   const [loading, setLoading] = useState(true)
 
+  // 1. Lắng nghe danh sách bàn Realtime từ Firestore
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'tables'), (snap) => {
       const list = []
       snap.forEach(d => list.push({ id: d.id, ...d.data() }))
-      // Sắp xếp bàn theo tên (số)
+      
+      // Sắp xếp bàn theo tên/số (T1, T2... T10) để hiển thị đẹp mắt
       list.sort((a,b)=> (a.name||a.id).localeCompare(b.name||b.id, 'vi', { numeric:true }))
-      setTables(list); setLoading(false)
+      
+      setTables(list)
+      setLoading(false)
     })
     return () => unsub()
   }, [])
 
-  // Hàm tạo nhanh 16 bàn nếu chưa có dữ liệu
+  // Hàm tạo dữ liệu mẫu (Chạy 1 lần nếu database chưa có bàn nào)
   const seedTables = async () => {
     const snap = await getDocs(collection(db, 'tables'))
     if (!snap.empty) { alert('Đã có dữ liệu tables'); return }
@@ -35,37 +38,56 @@ export default function OrderTables({ user, setRoute, setActiveTable, setActiveO
     alert('Đã tạo T1..T16')
   }
 
+  // Lọc bàn theo từ khóa tìm kiếm
   const filtered = useMemo(
     () => tables.filter(t => (t.name||t.id).toLowerCase().includes(q.toLowerCase())),
     [q, tables]
   )
 
+  // --- [QUAN TRỌNG] HÀM CHỌN BÀN & XỬ LÝ ĐƠN HÀNG ---
   const chooseTable = async (t) => {
-    // 1. Tìm xem bàn này có đơn nào đang mở (OPEN) không
+    // 1. Tìm xem bàn này có đơn nào CHƯA THANH TOÁN không?
+    // Các trạng thái được coi là chưa xong: 
+    // - OPEN: Đang chọn món
+    // - pending: Đã gửi bếp (đợi nấu)
+    // - cooking: Bếp đang nấu
+    // - served: Bếp đã trả món (khách đang ăn)
     const qOpen = query(
       collection(db, 'orders'),
       where('tableId','==', t.id),
-      where('status','==','OPEN')
+      where('status', 'in', ['OPEN', 'pending', 'cooking', 'served']) 
     )
     const snap = await getDocs(qOpen)
     
     let orderId
+    
     if (!snap.empty) {
-      // Nếu có đơn cũ -> Mở lại
+      // TRƯỜNG HỢP 1: Bàn đang có khách -> Mở lại đơn cũ để gọi thêm món hoặc thanh toán
       orderId = snap.docs[0].id
     } else {
-      // Nếu chưa có -> Tạo đơn mới & LƯU TÊN NGƯỜI TẠO
+      // TRƯỜNG HỢP 2: Bàn trống -> Tạo đơn mới
       const ref = await addDoc(collection(db, 'orders'), {
         tableId: t.id, 
+        
+        // [QUAN TRỌNG] Lưu tên bàn để Bếp và Dashboard hiển thị được ngay
+        tableName: t.name, 
+        
         status: 'OPEN', 
         createdAt: serverTimestamp(),
-        createdBy: user?.name || user?.email || 'Unknown', // <--- MỚI: Lưu tên người order
-        creatorId: user?.uid || '' // Lưu thêm ID để chắc chắn
+        
+        // [QUAN TRỌNG] Lưu tên nhân viên mở bàn (để hiện trong Nhật ký Dashboard)
+        createdBy: user?.name || user?.email || 'Unknown',
+        creatorId: user?.uid || ''
       })
       orderId = ref.id
+
+      // Nếu bàn đang trạng thái FREE -> Chuyển sang BUSY (Có khách) trên giao diện
+      if (t.status === 'FREE') {
+        await updateDoc(doc(db, 'tables', t.id), { status: 'BUSY' })
+      }
     }
     
-    // Chuyển sang màn hình Menu
+    // Chuyển sang màn hình Menu (Gọi món)
     setActiveTable(t)
     setActiveOrderId(orderId)
     setRoute('menu')
@@ -73,12 +95,14 @@ export default function OrderTables({ user, setRoute, setActiveTable, setActiveO
 
   return (
     <div className="space-y-4 animate-fadeIn">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800">Sơ đồ bàn</h2>
-          <p className="text-sm text-slate-500">Chọn bàn để bắt đầu gọi món</p>
+          <p className="text-sm text-slate-500">Chọn bàn để bắt đầu gọi món hoặc thanh toán</p>
         </div>
-        {/* Nút tạo bàn nhanh (chỉ hiện khi chưa có bàn nào) */}
+        
+        {/* Nút tạo bàn nhanh (chỉ hiện khi database trống) */}
         {tables.length === 0 && !loading && (
           <button onClick={seedTables} className="text-xs text-blue-600 underline">
             + Tạo dữ liệu mẫu
@@ -86,6 +110,7 @@ export default function OrderTables({ user, setRoute, setActiveTable, setActiveO
         )}
       </div>
 
+      {/* Ô Tìm kiếm */}
       <div className="relative">
         <input 
           value={q} 
@@ -96,6 +121,7 @@ export default function OrderTables({ user, setRoute, setActiveTable, setActiveO
         <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
       </div>
 
+      {/* Grid Danh sách bàn */}
       {loading ? (
         <div className="text-sm text-slate-500 py-10 text-center">Đang tải dữ liệu bàn...</div>
       ) : (
@@ -107,8 +133,8 @@ export default function OrderTables({ user, setRoute, setActiveTable, setActiveO
                 t.status==='FREE'
                   ? 'bg-white border border-slate-200 shadow-sm hover:border-emerald-500 hover:shadow-md'
                   : t.status==='BUSY'
-                    ? 'bg-rose-50 border border-rose-200 shadow-inner'
-                    : 'bg-amber-50 border border-amber-200'
+                    ? 'bg-rose-50 border border-rose-200 shadow-inner' // Màu hồng khi có khách
+                    : 'bg-amber-50 border border-amber-200' // Màu vàng (nếu có đặt trước)
               }`}
             >
               <div className="flex justify-between items-start">
@@ -122,9 +148,18 @@ export default function OrderTables({ user, setRoute, setActiveTable, setActiveO
                  <div className="text-xs text-slate-400 flex items-center gap-1">
                    <User className="w-3 h-3"/> {t.capacity}
                  </div>
+                 
+                 {/* Hiệu ứng Hover khi bàn trống */}
                  {t.status === 'FREE' && (
                    <div className="opacity-0 group-hover:opacity-100 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-md transition-opacity">
                      Chọn
+                   </div>
+                 )}
+                 
+                 {/* Nhãn "Có khách" khi bàn bận */}
+                 {t.status === 'BUSY' && (
+                   <div className="text-[10px] font-bold text-rose-500 bg-rose-100 px-1.5 py-0.5 rounded">
+                     Có khách
                    </div>
                  )}
               </div>
