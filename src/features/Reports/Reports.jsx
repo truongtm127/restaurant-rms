@@ -1,22 +1,27 @@
-import React, { useState } from 'react'
+// src/features/Reports/Reports.jsx
+import React from 'react'
+import { BarChart3 } from 'lucide-react'
 import RevenueReport from './RevenueReport'
-import MenuReport from './MenuReport'
 
 export default function Reports() {
-  const [tab, setTab] = useState('revenue') 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <button onClick={()=>setTab('revenue')}
-          className={`px-3 py-1.5 rounded-lg border ${tab==='revenue'?'bg-emerald-600 text-white border-emerald-600':'bg-white'}`}>
-          Báo cáo doanh thu
-        </button>
-        <button onClick={()=>setTab('menu')}
-          className={`px-3 py-1.5 rounded-lg border ${tab==='menu'?'bg-emerald-600 text-white border-emerald-600':'bg-white'}`}>
-          Báo cáo món ăn
-        </button>
+    <div className="space-y-6 animate-fadeIn">
+      {/* Header */}
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <BarChart3 className="text-emerald-600" /> Báo cáo tổng hợp
+          </h2>
+          <p className="text-sm text-slate-500 mt-1">
+            Theo dõi doanh thu, tài chính và hiệu quả món ăn trong cùng một giao diện
+          </p>
+        </div>
       </div>
-      {tab==='revenue' ? <RevenueReport/> : <MenuReport/>}
+
+      {/* Nội dung báo cáo chính */}
+      <div className="min-h-[600px]">
+        <RevenueReport />
+      </div>
     </div>
   )
 }

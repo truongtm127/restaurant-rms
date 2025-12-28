@@ -1,124 +1,89 @@
-// src/features/Order/InvoiceModal.jsx
 import React, { useEffect, useState } from 'react'
-import { collection, doc, getDocs, updateDoc, serverTimestamp } from 'firebase/firestore'
+import { X, Printer, CheckCircle, AlertCircle } from 'lucide-react'
+import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { fmtVND } from '../../utils/helpers'
-// 1. IMPORT CONFIRM MODAL
 import ConfirmModal from '../../components/UI/ConfirmModal'
 
-// Nhận thêm prop 'user'
 export default function InvoiceModal({ user, activeOrderId, activeTable, onClose, onPaid }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
+  const [total, setTotal] = useState(0)
   
-  // 2. STATE ĐỂ BẬT/TẮT MODAL XÁC NHẬN
+  // State điều khiển Confirm Popup
   const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
-    async function fetchItems() {
-      const snap = await getDocs(collection(db, 'orders', activeOrderId, 'items'))
-      const list = snap.docs.map(d => d.data())
-      setItems(list)
-      setLoading(false)
+    const fetchOrderDetails = async () => {
+      if (!activeOrderId) return
+      setLoading(true)
+      try {
+        const itemsRef = collection(db, 'orders', activeOrderId, 'items')
+        const itemsSnap = await getDocs(itemsRef)
+        const list = itemsSnap.docs.map(d => d.data())
+        setItems(list)
+        const calculatedTotal = list.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.qty || 1)), 0)
+        setTotal(calculatedTotal)
+      } catch (error) { console.error(error) } finally { setLoading(false) }
     }
-    fetchItems()
+    fetchOrderDetails()
   }, [activeOrderId])
 
-  const total = items.reduce((s, i) => s + (Number(i.price) * Number(i.qty)), 0)
+  const canPay = !loading && items.length > 0 && total > 0
 
-  // 3. HÀM MỞ MODAL XÁC NHẬN (Thay thế window.confirm)
-  const handlePayClick = () => {
-    setShowConfirm(true)
-  }
-
-  // 4. HÀM THỰC HIỆN THANH TOÁN (Chạy khi bấm "Đồng ý")
-  const executePayment = async () => {
-    try {
-        // Cập nhật trạng thái đơn hàng
-        await updateDoc(doc(db, 'orders', activeOrderId), {
-          status: 'PAID',
-          total: total,
-          closedAt: serverTimestamp(),
-          // LƯU TÊN NGƯỜI THANH TOÁN
-          paidBy: user?.name || user?.email || 'Unknown' 
-        })
-    
-        // Gọi hàm onPaid (để cập nhật bàn về FREE ở component cha)
-        onPaid()
-        
-        // Đóng modal
-        setShowConfirm(false)
-    } catch (error) {
-        console.error("Lỗi thanh toán:", error)
-        alert("Có lỗi xảy ra khi thanh toán")
-    }
-  }
+  const handlePrint = () => window.print()
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* 5. HIỂN THỊ CONFIRM MODAL */}
-      <ConfirmModal 
-        isOpen={showConfirm}
-        onClose={() => setShowConfirm(false)}
-        onConfirm={executePayment}
-        title="Xác nhận thanh toán"
-        message={`Bạn có chắc chắn muốn xác nhận đã thu ${fmtVND(total)} cho Bàn ${activeTable?.name}? Hành động này sẽ đóng đơn hàng và trả bàn về trạng thái Trống.`}
-      />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:p-0">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={onClose}/>
 
-      {/* Lớp nền mờ của InvoiceModal */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      
-      {/* Nội dung hóa đơn */}
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden animate-fadeIn">
-        
-        <div className="bg-emerald-600 p-4 text-white text-center">
-          <div className="font-bold text-lg">Xác nhận thanh toán</div>
-          <div className="text-emerald-100 text-sm">Bàn {activeTable?.name}</div>
+      <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-fadeIn">
+        <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <div><h2 className="text-lg font-bold text-slate-800">Xác nhận thanh toán</h2><p className="text-sm text-slate-500">Bàn {activeTable?.name || activeTable?.id}</p></div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-slate-200 text-slate-500 transition"><X size={20} /></button>
         </div>
 
-        <div className="p-6 max-h-[60vh] overflow-y-auto">
-          {loading ? (
-            <div className="text-center text-slate-500">Đang tải chi tiết...</div>
-          ) : (
-            <div className="space-y-3">
-              <div className="divide-y divide-dashed divide-slate-200">
-                {items.map((item, idx) => (
-                  <div key={idx} className="py-2 flex justify-between text-sm">
-                    <div>
-                      <span className="font-bold text-slate-700">{item.qty}x</span> {item.name}
+        <div className="p-6 overflow-y-auto flex-1 bg-white">
+          {loading ? <div className="flex justify-center py-10 text-slate-400">Đang tính tiền...</div> : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                {items.length === 0 ? <div className="text-center py-8 text-slate-400 flex flex-col items-center"><AlertCircle size={32} className="mb-2 opacity-50"/><p>Chưa có món ăn nào</p></div> : 
+                  items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-sm border-b border-dashed border-slate-100 pb-2 last:border-0">
+                      <div className="flex-1"><span className="font-medium text-slate-700">{item.name}</span><div className="text-xs text-slate-400">x{item.qty}</div></div>
+                      <div className="font-medium text-slate-800">{fmtVND(Number(item.price) * Number(item.qty))}</div>
                     </div>
-                    <div className="text-slate-600">{fmtVND(item.price * item.qty)}</div>
-                  </div>
-                ))}
+                  ))
+                }
               </div>
-              
-              <div className="border-t-2 border-slate-800 pt-3 flex justify-between items-end">
-                <div className="text-slate-500 text-sm font-medium">Tổng cộng</div>
-                <div className="text-2xl font-bold text-slate-800">{fmtVND(total)}</div>
-              </div>
-
-              {/* Hiển thị người đang thực hiện thanh toán */}
-              <div className="text-center pt-2 text-xs text-slate-400 italic">
-                Thu ngân: {user?.name || user?.email || '...'}
+              <div className="mt-4 pt-4 border-t-2 border-slate-100 flex justify-between items-center">
+                <span className="text-base font-bold text-slate-600">TỔNG CỘNG</span><span className="text-2xl font-bold text-emerald-600">{fmtVND(total)}</span>
               </div>
             </div>
           )}
         </div>
 
-        <div className="p-4 bg-slate-50 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-slate-200 font-bold text-slate-600 hover:bg-white transition">
-            Quay lại
-          </button>
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3">
+          <button onClick={handlePrint} disabled={!canPay} className="flex-1 px-4 py-3 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold hover:bg-slate-50 transition flex items-center justify-center gap-2 disabled:opacity-50"><Printer size={18} /> In phiếu</button>
           
-          {/* Nút này giờ gọi handlePayClick thay vì chạy logic trực tiếp */}
           <button 
-            onClick={handlePayClick} 
-            className="flex-1 py-3 rounded-xl bg-emerald-600 text-white font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-700 transition"
+            onClick={() => setShowConfirm(true)}
+            disabled={!canPay}
+            className={`flex-[2] px-4 py-3 rounded-xl font-bold transition shadow-lg flex items-center justify-center gap-2 ${canPay ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-emerald-200 active:scale-95' : 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none'}`}
           >
-            Đã thu tiền
+            <CheckCircle size={20} /> {loading ? '...' : `Thu tiền: ${fmtVND(total)}`}
           </button>
         </div>
       </div>
+
+      {/* Popup Xác nhận cuối cùng */}
+      <ConfirmModal 
+        isOpen={showConfirm}
+        title="Xác nhận thu tiền"
+        message={`Bạn có chắc chắn đã thu đủ ${fmtVND(total)} từ khách hàng?`}
+        onConfirm={() => { onPaid(); setShowConfirm(false) }}
+        onClose={() => setShowConfirm(false)}
+      />
     </div>
   )
 }
