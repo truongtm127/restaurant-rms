@@ -1,7 +1,17 @@
+// src/utils/helpers.js
+
 /* ----------------------------- Formatting ------------------------------ */
 
-// Định dạng tiền tệ Việt Nam (VD: 100.000đ)
-export const fmtVND = (v) => (Number(v) || 0).toLocaleString('vi-VN') + 'đ';
+// [CẬP NHẬT] Định dạng tiền tệ an toàn (Tránh lỗi NaN hoặc undefined)
+export const fmtVND = (amount) => {
+  // Kiểm tra nếu giá trị không hợp lệ
+  if (amount === undefined || amount === null || isNaN(amount)) {
+    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(0);
+  }
+  
+  // Ép kiểu về số và định dạng
+  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(amount));
+};
 
 // Nhãn hiển thị thứ trong tuần (0=CN, 1=T2, ...)
 export const dayLabel = (i) => ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][i];
@@ -15,6 +25,14 @@ export const formatDateInput = (date) => {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+// Lấy tên viết tắt (Ví dụ: Nguyen Van A -> NA) - Thường dùng cho Avatar
+export const getShortName = (name) => {
+  if (!name) return 'U';
+  const parts = name.trim().split(' ');
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
 /* ----------------------------- Date Helpers ---------------------------- */

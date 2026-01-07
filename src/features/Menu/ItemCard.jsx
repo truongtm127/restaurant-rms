@@ -1,9 +1,10 @@
 import React, { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Trash2, Pencil, Plus, Image as ImageIcon } from 'lucide-react'
+// Thêm FlaskConical vào import
+import { Trash2, Pencil, Plus, Image as ImageIcon, FlaskConical } from 'lucide-react'
 import { fmtVND } from '../../utils/helpers'
 
-export default function ItemCard({ m, onEdit, onDelete, onAdd, canAdd, canManage }) {
+export default function ItemCard({ m, onEdit, onDelete, onAdd, onRecipe, canAdd, canManage }) {
   const [imageLoaded, setImageLoaded] = useState(false)
   const [imgError, setImgError] = useState(false)
 
@@ -51,9 +52,10 @@ export default function ItemCard({ m, onEdit, onDelete, onAdd, canAdd, canManage
            </div>
         )}
 
-        {/* Action Buttons (Admin) */}
+        {/* --- ACTION BUTTONS (ADMIN) --- */}
         {canManage && (
           <>
+            {/* Nút Xóa (Góc trái trên) */}
             <button 
               onClick={(e) => { e.stopPropagation(); onDelete(m) }}
               className="absolute top-1 left-1 p-1.5 bg-white/90 text-rose-500 rounded-md opacity-0 group-hover:opacity-100 transition hover:bg-rose-500 hover:text-white z-30 shadow-sm"
@@ -62,13 +64,26 @@ export default function ItemCard({ m, onEdit, onDelete, onAdd, canAdd, canManage
               <Trash2 className="w-3.5 h-3.5" />
             </button>
             
-            <button 
-              onClick={(e) => { e.stopPropagation(); onEdit(m) }}
-              className="absolute top-1 right-1 p-1.5 bg-white/90 text-slate-600 rounded-md opacity-0 group-hover:opacity-100 transition hover:bg-slate-100 hover:text-emerald-600 z-30 shadow-sm"
-              title="Chỉnh sửa"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
+            {/* Group Nút Sửa & Công thức (Góc phải trên) */}
+            <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition z-30">
+                {/* Nút Công Thức */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onRecipe(m) }}
+                  className="p-1.5 bg-white/90 text-purple-600 rounded-md hover:bg-purple-500 hover:text-white shadow-sm transition-colors"
+                  title="Định lượng / Công thức"
+                >
+                  <FlaskConical className="w-3.5 h-3.5" />
+                </button>
+
+                {/* Nút Sửa */}
+                <button 
+                  onClick={(e) => { e.stopPropagation(); onEdit(m) }}
+                  className="p-1.5 bg-white/90 text-slate-600 rounded-md hover:bg-emerald-600 hover:text-white shadow-sm transition-colors"
+                  title="Chỉnh sửa thông tin"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+            </div>
           </>
         )}
       </div>

@@ -3,28 +3,43 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { doc, getDoc, setDoc, query, where, collection, getDocs } from 'firebase/firestore'
 import { auth, db } from './firebase'
+import { X, CheckCircle, AlertCircle } from 'lucide-react'
 
 // Layout & Auth
 import Shell from './components/Layout/Shell'
 import Login from './components/Auth/Login'
 
-// Features
+// Features Imports
 import Dashboard from './features/Dashboard/Dashboard'
 import OrderTables from './features/Order/OrderTables'
 import Menu from './features/Menu/Menu'
+import Kitchen from './features/Kitchen/Kitchen'
+import Inventory from './features/Inventory/Inventory' // <--- [MỚI] Import Inventory
+
+// Manager Features
 import Staff from './features/Staff/Staff'
 import Reports from './features/Reports/Reports'
-import Kitchen from './features/Kitchen/Kitchen'
+import CouponManager from './features/Coupons/CouponManager'
+import Attendance from './features/Staff/Attendance'
+import Payroll from './features/Staff/Payroll'
 
-const MANAGER_EMAILS = ['admin@rms.vn']
+const MANAGER_EMAILS = ['admin@rms.vn', 'quanly@nhahang.com'] 
 
 export default function App() {
   const [user, setUser] = useState(null)
   const [route, setRoute] = useState('dashboard')
   const [booting, setBooting] = useState(true)
-
   const [activeTable, setActiveTable] = useState(null)
   const [activeOrderId, setActiveOrderId] = useState(null)
+
+  // State thông báo
+  const [toast, setToast] = useState({ show: false, message: '', type: 'error' })
+
+  // Hàm hiển thị thông báo
+  const showToast = (message, type = 'error') => {
+    setToast({ show: true, message, type })
+    setTimeout(() => setToast(prev => ({ ...prev, show: false })), 5000)
+  }
 
   useEffect(() => {
     const checkUserRole = async (u) => {
@@ -40,7 +55,8 @@ export default function App() {
         } else {
           const isManager = MANAGER_EMAILS.includes(String(u.email || '').toLowerCase())
           if (isManager) {
-            userData.role = 'MANAGER'; userData.name = 'Admin';
+            userData.role = 'MANAGER'
+            userData.name = 'Administrator'
             await setDoc(userRef, userData, { merge: true })
           } else {
             const q = query(collection(db, 'users'), where('email', '==', u.email))
@@ -50,16 +66,24 @@ export default function App() {
                userData = { ...userData, role: d.role, name: d.name }
                await setDoc(userRef, userData, { merge: true })
             } else {
-               await signOut(auth); alert("Tài khoản không hợp lệ."); setUser(null); return
+               await signOut(auth)
+               showToast("Tài khoản chưa được cấp quyền truy cập. Vui lòng liên hệ Quản lý.", "error")
+               setUser(null)
+               return
             }
           }
         }
         setUser(userData)
-        
-        // [FIX] Luôn luôn vào Dashboard đầu tiên, bất kể vai trò là gì
-        setRoute('dashboard')
+        // Nếu là Bếp thì vào thẳng trang Bếp
+        if (userData.role === 'KITCHEN') setRoute('kitchen')
+        else setRoute('dashboard') 
 
-      } catch (error) { console.warn(error); setUser(null) } finally { setBooting(false) }
+      } catch (error) { 
+        console.warn("Auth Error:", error)
+        setUser(null) 
+      } finally { 
+        setBooting(false) 
+      }
     }
 
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -68,45 +92,116 @@ export default function App() {
     return () => unsub()
   }, [])
 
-  if (booting) return <div className="min-h-screen grid place-items-center bg-slate-50 text-slate-500 font-medium animate-pulse">Khởi động hệ thống...</div>
-  if (!user) return <Login />
-
   const PageTransition = ({ children, k }) => (
-    <motion.div key={k} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }} className="h-full">
+    <motion.div 
+      key={k} 
+      initial={{ opacity: 0, y: 5 }} 
+      animate={{ opacity: 1, y: 0 }} 
+      exit={{ opacity: 0, y: -5 }} 
+      transition={{ duration: 0.2 }} 
+      className="h-full"
+    >
       {children}
     </motion.div>
   )
 
+  if (booting) return (
+    <div className="min-h-screen grid place-items-center bg-slate-50">
+      <div className="text-center animate-pulse">
+        <div className="w-12 h-12 bg-emerald-600 rounded-full mx-auto mb-4"/>
+        <p className="text-slate-500 font-bold">Đang khởi động hệ thống...</p>
+      </div>
+    </div>
+  )
+
   return (
-    <Shell user={user} route={route} setRoute={setRoute} onLogout={() => signOut(auth)}>
-      <AnimatePresence mode="wait">
-        
-        {route === 'dashboard' && (
-          <PageTransition k="dash"><Dashboard /></PageTransition>
+    <>
+      {/* --- LAYER THÔNG BÁO (CENTER) --- */}
+      <AnimatePresence>
+        {toast.show && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            className={`
+              fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[99999] 
+              flex flex-col items-center gap-3 p-6 min-w-[300px] max-w-sm text-center
+              rounded-2xl shadow-2xl border-2 transition-all duration-300
+              ${toast.type === 'success' 
+                ? 'bg-white border-emerald-500 text-emerald-800 shadow-emerald-100' 
+                : 'bg-white border-rose-500 text-rose-800 shadow-rose-100'}
+            `}
+          >
+              <div className={`p-3 rounded-full mb-1 ${toast.type === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                  {toast.type === 'success' ? <CheckCircle size={32}/> : <AlertCircle size={32}/>}
+              </div>
+              
+              <div className="font-bold text-lg">{toast.type === 'success' ? 'Thành công' : 'Thông báo lỗi'}</div>
+              <div className="font-medium text-sm text-slate-600 px-2 leading-relaxed">{toast.message}</div>
+              
+              <button 
+                onClick={() => setToast(p => ({...p, show: false}))} 
+                className="absolute top-3 right-3 text-slate-400 hover:text-slate-600 p-1 hover:bg-slate-100 rounded-full"
+              >
+                  <X size={20}/>
+              </button>
+          </motion.div>
         )}
-
-        {route === 'kitchen' && ['MANAGER', 'KITCHEN'].includes(user.role) && (
-          <PageTransition k="kitchen"><Kitchen user={user} /></PageTransition>
-        )}
-
-        {route === 'order' && (
-          <PageTransition k="order"><OrderTables user={user} setRoute={setRoute} setActiveTable={setActiveTable} setActiveOrderId={setActiveOrderId} /></PageTransition>
-        )}
-
-        {route === 'menu' && (
-          <PageTransition k="menu"><Menu user={user} activeTable={activeTable} activeOrderId={activeOrderId} setActiveTable={setActiveTable} setActiveOrderId={setActiveOrderId} setRoute={setRoute} /></PageTransition>
-        )}
-
-        {route === 'staff' && user.role === 'MANAGER' && (
-          <PageTransition k="staff"><Staff user={user} /></PageTransition>
-        )}
-
-        {route === 'reports' && user.role === 'MANAGER' && (
-          <PageTransition k="reports"><Reports /></PageTransition>
-        )}
-
       </AnimatePresence>
-      <footer className="mt-10 text-xs text-slate-400 text-center border-t border-slate-100 pt-4 pb-2">RMS System</footer>
-    </Shell>
+
+      {!user ? (
+        <Login />
+      ) : (
+        // [CẬP NHẬT] Đổi prop 'route' thành 'activeRoute' để khớp với Shell mới
+        <Shell user={user} activeRoute={route} setRoute={setRoute} onLogout={() => signOut(auth)}>
+          <AnimatePresence mode="wait">
+            {route === 'dashboard' && <PageTransition k="dash"><Dashboard /></PageTransition>}
+            {route === 'attendance' && <PageTransition k="attendance"><Attendance user={user} /></PageTransition>}
+            
+            {route === 'order' && (
+              <PageTransition k="order">
+                <OrderTables user={user} setRoute={setRoute} setActiveTable={setActiveTable} setActiveOrderId={setActiveOrderId} />
+              </PageTransition>
+            )}
+
+            {route === 'menu' && (
+              <PageTransition k="menu">
+                <Menu user={user} activeTable={activeTable} activeOrderId={activeOrderId} setActiveTable={setActiveTable} setActiveOrderId={setActiveOrderId} setRoute={setRoute} />
+              </PageTransition>
+            )}
+
+            {route === 'kitchen' && ['MANAGER', 'KITCHEN'].includes(user.role) && (
+              <PageTransition k="kitchen"><Kitchen user={user} /></PageTransition>
+            )}
+
+            {/* --- [MỚI] ROUTE KHO HÀNG --- */}
+            {route === 'inventory' && ['MANAGER', 'KITCHEN'].includes(user.role) && (
+              <PageTransition k="inv"><Inventory user={user} /></PageTransition>
+            )}
+
+            {route === 'staff' && user.role === 'MANAGER' && (
+              <PageTransition k="staff"><Staff user={user} /></PageTransition>
+            )}
+
+            {route === 'payroll' && user.role === 'MANAGER' && (
+              <PageTransition k="payroll"><Payroll /></PageTransition>
+            )}
+
+            {route === 'coupons' && user.role === 'MANAGER' && (
+              <PageTransition k="coupons"><CouponManager /></PageTransition>
+            )}
+            
+            {route === 'reports' && user.role === 'MANAGER' && (
+              <PageTransition k="reports"><Reports /></PageTransition>
+            )}
+          </AnimatePresence>
+          
+          <footer className="mt-8 text-[10px] text-slate-300 text-center border-t border-slate-100 pt-2 pb-1 uppercase tracking-widest">
+            Restaurant Management System © 2025
+          </footer>
+        </Shell>
+      )}
+    </>
   )
 }

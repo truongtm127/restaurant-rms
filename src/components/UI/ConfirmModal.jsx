@@ -7,7 +7,12 @@ export default function ConfirmModal({ isOpen, onClose, onConfirm, title, messag
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fadeIn">
       <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 scale-100 transition-all">
         <h3 className="text-lg font-bold text-slate-800 mb-2">{title}</h3>
-        <p className="text-sm text-slate-600 mb-6 leading-relaxed">{message}</p>
+        
+        {/* [SỬA LỖI] Thay thẻ <p> thành <div> để có thể chứa nội dung HTML/Div con */}
+        <div className="text-sm text-slate-600 mb-6 leading-relaxed">
+          {message}
+        </div>
+        
         <div className="flex gap-3 justify-end">
           <button 
             onClick={onClose}

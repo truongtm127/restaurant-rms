@@ -6,7 +6,7 @@ import { getStorage } from "firebase/storage";
 
 // ⚠️ Thay đoạn này bằng cấu hình riêng của bạn
 // Bạn lấy nó từ Firebase Console > Project settings > Your apps > SDK setup and configuration
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: "AIzaSyAOKeFao616puOXPfjVenctYA6Q05yd1kQ",
   authDomain: "restaurant-rms-c7351.firebaseapp.com",
   projectId: "restaurant-rms-c7351",

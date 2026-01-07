@@ -2,16 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { collection, onSnapshot, query, limit } from 'firebase/firestore'
 import { Users, DollarSign, Clock, Calendar, FilePlus, CheckCircle2, ChefHat } from 'lucide-react'
 import { db } from '../../firebase'
+import { fmtVND } from '../../utils/helpers'
 
-const fmtVND = (num) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num)
-// Hàm helper để so sánh ngày (giữ nguyên logic của bạn)
+// ... (Giữ nguyên các hàm helper isSameDay, getLocalDateString)
 const isSameDay = (d1, d2) => {
   if (!d1 || !d2) return false
   const date1 = new Date(d1.seconds ? d1.seconds * 1000 : d1)
   const date2 = new Date(d2.seconds ? d2.seconds * 1000 : d2)
   return date1.getDate() === date2.getDate() && date1.getMonth() === date2.getMonth() && date1.getFullYear() === date2.getFullYear()
 }
-// [FIX] Hàm lấy chuỗi YYYY-MM-DD theo giờ địa phương (thay vì UTC)
 const getLocalDateString = (date) => {
   const offset = date.getTimezoneOffset() * 60000
   return new Date(date.getTime() - offset).toISOString().slice(0, 10)
@@ -22,6 +21,7 @@ export default function Dashboard() {
   const [ordersSnapshot, setOrdersSnapshot] = useState([])
   const [stats, setStats] = useState({ revenue: 0, countPaid: 0, countNew: 0, servingTables: 0, totalTables: 0 })
 
+  // ... (Giữ nguyên useEffect fetch data)
   useEffect(() => {
     const unsubOrders = onSnapshot(query(collection(db, 'orders'), limit(200)), (snap) => {
       const list = []
@@ -39,26 +39,43 @@ export default function Dashboard() {
   const { timeline, dailyStats } = useMemo(() => {
     const events = []
     let rev = 0, paidCount = 0, newCount = 0
+    
     ordersSnapshot.forEach(o => {
       // 1. OPEN
       if (isSameDay(o.createdAt, selectedDate)) {
-        events.push({ uniqueId: o.id + '_open', type: 'OPEN', timestamp: o.createdAt, tableName: o.tableName||o.tableId, staffName: o.createdBy||'Unknown', data: o })
+        events.push({ 
+          uniqueId: o.id + '_open', type: 'OPEN', timestamp: o.createdAt, 
+          tableName: o.tableName||o.tableId, staffName: o.createdBy||'Unknown', data: o 
+        })
         newCount++
       }
       // 2. SERVED
       if (o.finishedAt && isSameDay(o.finishedAt, selectedDate)) {
-        events.push({ uniqueId: o.id + '_served', type: 'SERVED', timestamp: o.finishedAt, tableName: o.tableName||o.tableId, staffName: o.servedBy||o.chefName||'Bếp', data: o })
+        events.push({ 
+          uniqueId: o.id + '_served', type: 'SERVED', timestamp: o.finishedAt, 
+          tableName: o.tableName||o.tableId, staffName: o.servedBy||o.chefName||'Bếp', data: o 
+        })
       }
       // 3. PAID
       if (o.status === 'PAID' && isSameDay(o.paidAt || o.updatedAt, selectedDate)) {
-        events.push({ uniqueId: o.id + '_paid', type: 'PAID', timestamp: o.paidAt || o.updatedAt, tableName: o.tableName||o.tableId, staffName: o.paidBy||'Thu ngân', total: o.total, data: o })
-        rev += (Number(o.total) || 0); paidCount++
+        const realTotal = o.finalTotal !== undefined ? o.finalTotal : o.total
+        events.push({ 
+          uniqueId: o.id + '_paid', type: 'PAID', timestamp: o.paidAt || o.updatedAt, 
+          tableName: o.tableName||o.tableId, 
+          // [SỬA] Đảm bảo luôn lấy được tên thu ngân, nếu không có thì fallback 'Admin'
+          staffName: o.paidBy || 'Admin', 
+          total: realTotal, data: o 
+        })
+        rev += (Number(realTotal) || 0)
+        paidCount++
       }
     })
+    
     events.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0))
     return { timeline: events, dailyStats: { revenue: rev, countPaid: paidCount, countNew: newCount } }
   }, [ordersSnapshot, selectedDate])
 
+  // ... (Giữ nguyên phần render)
   useEffect(() => { setStats(prev => ({ ...prev, ...dailyStats })) }, [dailyStats])
 
   const StatCard = ({ label, value, sub, icon: Icon, color }) => (
@@ -74,19 +91,7 @@ export default function Dashboard() {
         <div><h1 className="text-2xl font-bold text-slate-800">Nhật ký hoạt động</h1><p className="text-sm text-slate-500 mt-1">Theo dõi chi tiết Phục vụ - Bếp - Thu ngân</p></div>
         <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-300 shadow-sm">
             <Calendar className="w-4 h-4 text-slate-500" />
-            {/* [FIX] Sửa logic hiển thị ngày giờ tại đây */}
-            <input 
-                type="date" 
-                className="text-sm font-medium text-slate-700 outline-none bg-transparent cursor-pointer" 
-                value={getLocalDateString(selectedDate)} 
-                onChange={(e) => { 
-                    if (e.target.value) {
-                        // Tạo Date object từ chuỗi YYYY-MM-DD theo giờ địa phương (tránh bị lùi ngày do UTC)
-                        const [y, m, d] = e.target.value.split('-').map(Number)
-                        setSelectedDate(new Date(y, m - 1, d))
-                    }
-                }} 
-            />
+            <input type="date" className="text-sm font-medium text-slate-700 outline-none bg-transparent cursor-pointer" value={getLocalDateString(selectedDate)} onChange={(e) => { if (e.target.value) { const [y, m, d] = e.target.value.split('-').map(Number); setSelectedDate(new Date(y, m - 1, d)) } }} />
         </div>
       </div>
 
@@ -113,6 +118,8 @@ export default function Dashboard() {
               } else {
                 icon = <FilePlus className="w-5 h-5"/>; colorClass = 'bg-blue-100 border-blue-200 text-blue-600'; title = 'MỞ ĐƠN'; staffLabel = 'Phục vụ'
               }
+              const zoneName = event.data.zone ? `${event.data.zone} - ` : ''
+
               return (
                 <div key={event.uniqueId} className="flex gap-4 p-4 hover:bg-slate-50 transition group animate-fadeIn">
                   <div className="flex flex-col items-center min-w-[60px] pt-1"><span className="text-sm font-bold text-slate-700">{timeStr}</span></div>
@@ -120,11 +127,15 @@ export default function Dashboard() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1"><span className={`text-sm font-bold ${event.type==='PAID'?'text-emerald-800':(event.type==='SERVED'?'text-orange-800':'text-blue-800')}`}>{title}</span></div>
                     <div className="text-xs text-slate-600 flex flex-wrap items-center gap-3">
-                        <span className="bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm">🍽️ Bàn: <b>{event.tableName}</b></span>
+                        <span className="bg-white px-2 py-0.5 rounded border border-slate-200 shadow-sm">
+                           🍽️ <b>{zoneName}{event.tableName}</b>
+                        </span>
                         <span className="opacity-80">👤 {staffLabel}: <b>{event.staffName}</b></span>
                     </div>
                   </div>
-                  <div className="text-right min-w-[100px] flex flex-col justify-center">{event.type === 'PAID' && <div className="text-sm font-bold text-emerald-600">+{fmtVND(event.total)}</div>}</div>
+                  <div className="text-right min-w-[100px] flex flex-col justify-center">
+                    {event.type === 'PAID' && <div className="text-sm font-bold text-emerald-600">+{fmtVND(event.total)}</div>}
+                  </div>
                 </div>
               )
             })
