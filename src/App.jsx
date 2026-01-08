@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
-import { doc, getDoc, setDoc, query, where, collection, getDocs } from 'firebase/firestore'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { auth, db } from './firebase'
 import { X, CheckCircle, AlertCircle } from 'lucide-react'
 
@@ -14,7 +14,7 @@ import Dashboard from './features/Dashboard/Dashboard'
 import OrderTables from './features/Order/OrderTables'
 import Menu from './features/Menu/Menu'
 import Kitchen from './features/Kitchen/Kitchen'
-import Inventory from './features/Inventory/Inventory' // <--- [MỚI] Import Inventory
+import Inventory from './features/Inventory/Inventory'
 
 // Manager Features
 import Staff from './features/Staff/Staff'
@@ -22,8 +22,6 @@ import Reports from './features/Reports/Reports'
 import CouponManager from './features/Coupons/CouponManager'
 import Attendance from './features/Staff/Attendance'
 import Payroll from './features/Staff/Payroll'
-
-const MANAGER_EMAILS = ['admin@rms.vn', 'quanly@nhahang.com'] 
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -48,33 +46,26 @@ export default function App() {
 
         const userRef = doc(db, 'users', u.uid)
         const userSnap = await getDoc(userRef)
-        let userData = { uid: u.uid, email: u.email, name: '', role: 'STAFF' }
+        
+        // Cấu trúc dữ liệu mặc định cho User mới
+        let userData = { 
+          uid: u.uid, 
+          email: u.email, 
+          name: u.displayName || 'Nhân viên mới', 
+          role: 'STAFF' 
+        }
 
         if (userSnap.exists()) {
+          // Nếu user đã tồn tại, lấy dữ liệu từ DB (bao gồm Role đã được cấp)
           userData = { ...userData, ...userSnap.data() }
         } else {
-          const isManager = MANAGER_EMAILS.includes(String(u.email || '').toLowerCase())
-          if (isManager) {
-            userData.role = 'MANAGER'
-            userData.name = 'Administrator'
-            await setDoc(userRef, userData, { merge: true })
-          } else {
-            const q = query(collection(db, 'users'), where('email', '==', u.email))
-            const snap = await getDocs(q)
-            if (!snap.empty) {
-               const d = snap.docs[0].data()
-               userData = { ...userData, role: d.role, name: d.name }
-               await setDoc(userRef, userData, { merge: true })
-            } else {
-               await signOut(auth)
-               showToast("Tài khoản chưa được cấp quyền truy cập. Vui lòng liên hệ Quản lý.", "error")
-               setUser(null)
-               return
-            }
-          }
+          // Nếu là user mới tinh, lưu vào DB với quyền mặc định là STAFF
+          await setDoc(userRef, userData, { merge: true })
         }
+        
         setUser(userData)
-        // Nếu là Bếp thì vào thẳng trang Bếp
+        
+        // Điều hướng thông minh dựa trên Role
         if (userData.role === 'KITCHEN') setRoute('kitchen')
         else setRoute('dashboard') 
 
@@ -153,8 +144,8 @@ export default function App() {
       {!user ? (
         <Login />
       ) : (
-        // [CẬP NHẬT] Đổi prop 'route' thành 'activeRoute' để khớp với Shell mới
-        <Shell user={user} activeRoute={route} setRoute={setRoute} onLogout={() => signOut(auth)}>
+        // Đã sửa activeRoute -> route để khớp với Shell mới
+        <Shell user={user} route={route} setRoute={setRoute} onLogout={() => signOut(auth)}>
           <AnimatePresence mode="wait">
             {route === 'dashboard' && <PageTransition k="dash"><Dashboard /></PageTransition>}
             {route === 'attendance' && <PageTransition k="attendance"><Attendance user={user} /></PageTransition>}
@@ -175,7 +166,7 @@ export default function App() {
               <PageTransition k="kitchen"><Kitchen user={user} /></PageTransition>
             )}
 
-            {/* --- [MỚI] ROUTE KHO HÀNG --- */}
+            {/* --- ROUTE KHO HÀNG --- */}
             {route === 'inventory' && ['MANAGER', 'KITCHEN'].includes(user.role) && (
               <PageTransition k="inv"><Inventory user={user} /></PageTransition>
             )}

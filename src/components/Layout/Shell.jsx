@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { 
   LayoutDashboard, 
-  Menu, 
+  Menu as MenuIcon, // Đổi tên alias để tránh trùng với tên component
   Users, 
   BarChart3, 
   LogOut, 
@@ -11,120 +11,192 @@ import {
   Calculator, 
   Layers,
   Package,
-  Bell, // <--- [MỚI] Icon Chuông
-  X     // <--- [MỚI] Icon Đóng
+  Bell,
+  X,
+  PanelLeftClose, // Icon đóng sidebar
+  PanelLeftOpen   // Icon mở sidebar
 } from 'lucide-react'
 import { collection, query, where, onSnapshot, updateDoc, doc, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase'
 
 export default function Shell({ user, route, setRoute, onLogout, children }) {
   
-  // --- STATE MENU ---
+  // --- STATE UI ---
+  const [collapsed, setCollapsed] = useState(false) // Trạng thái thu gọn sidebar
+
+  // --- MENU CONFIG ---
+  // Thêm thuộc tính 'group' để phân nhóm
   const navItems = [
-    { id: 'dashboard', label: 'Tổng quan',    icon: LayoutDashboard, roles: ['MANAGER', 'STAFF', 'KITCHEN'] },
-    { id: 'attendance',label: 'Chấm công',    icon: Clock,           roles: ['MANAGER', 'STAFF', 'KITCHEN'] },
-    { id: 'order',     label: 'Sơ đồ bàn',    icon: Layers,          roles: ['MANAGER', 'STAFF'] },
-    { id: 'menu',      label: 'Thực đơn',     icon: Menu,            roles: ['MANAGER', 'STAFF'] },
-    { id: 'kitchen',   label: 'Bếp & Bar',    icon: ChefHat,         roles: ['MANAGER', 'KITCHEN'] },
-    { id: 'inventory', label: 'Kho hàng',     icon: Package,         roles: ['MANAGER', 'KITCHEN'] },
-    { id: 'staff',     label: 'Nhân viên',    icon: Users,           roles: ['MANAGER'] },
-    { id: 'payroll',   label: 'Bảng lương',   icon: Calculator,      roles: ['MANAGER'] },
-    { id: 'coupons',   label: 'Khuyến mãi',   icon: Ticket,          roles: ['MANAGER'] },
-    { id: 'reports',   label: 'Báo cáo',      icon: BarChart3,       roles: ['MANAGER'] },
+    // Nhóm CHUNG
+    { id: 'dashboard', label: 'Tổng quan',    icon: LayoutDashboard, roles: ['MANAGER', 'STAFF', 'KITCHEN'], group: 'Chung' },
+    
+    // Nhóm VẬN HÀNH (Operation)
+    { id: 'order',     label: 'Sơ đồ bàn',    icon: Layers,          roles: ['MANAGER', 'STAFF'],           group: 'Vận hành' },
+    { id: 'menu',      label: 'Thực đơn',     icon: MenuIcon,        roles: ['MANAGER', 'STAFF'],           group: 'Vận hành' },
+    { id: 'kitchen',   label: 'Bếp & Bar',    icon: ChefHat,         roles: ['MANAGER', 'KITCHEN'],         group: 'Vận hành' },
+    { id: 'inventory', label: 'Kho hàng',     icon: Package,         roles: ['MANAGER', 'KITCHEN'],         group: 'Vận hành' },
+    
+    // Nhóm QUẢN TRỊ (Management)
+    { id: 'staff',     label: 'Nhân sự',      icon: Users,           roles: ['MANAGER'],                    group: 'Quản trị' },
+    { id: 'attendance',label: 'Chấm công',    icon: Clock,           roles: ['MANAGER', 'STAFF', 'KITCHEN'], group: 'Quản trị' },
+    { id: 'payroll',   label: 'Bảng lương',   icon: Calculator,      roles: ['MANAGER'],                    group: 'Quản trị' },
+    { id: 'coupons',   label: 'Khuyến mãi',   icon: Ticket,          roles: ['MANAGER'],                    group: 'Quản trị' },
+    { id: 'reports',   label: 'Báo cáo',      icon: BarChart3,       roles: ['MANAGER'],                    group: 'Quản trị' },
   ]
 
+  // Lọc item theo quyền & Danh sách các nhóm
   const visibleItems = navItems.filter(item => item.roles.includes(user.role))
+  const groups = ['Chung', 'Vận hành', 'Quản trị']
 
-  // --- [MỚI] LOGIC THÔNG BÁO ---
+  // --- LOGIC THÔNG BÁO (GIỮ NGUYÊN) ---
   const [notifs, setNotifs] = useState([])
   const [showNotifPanel, setShowNotifPanel] = useState(false)
-  
-  // Chỉ Manager mới cần nhận thông báo kho
   const isManager = user?.role === 'MANAGER'
 
   useEffect(() => {
     if (!isManager) return
-
-    // Lắng nghe thông báo chưa đọc (isRead == false)
     const q = query(
         collection(db, 'notifications'), 
         where('isRead', '==', false),
         orderBy('createdAt', 'desc')
     )
-
     const unsub = onSnapshot(q, (snap) => {
        const list = []
        snap.forEach(d => list.push({ id: d.id, ...d.data() }))
        setNotifs(list)
     }, (err) => console.log("Lỗi tải thông báo:", err))
-
     return () => unsub()
   }, [isManager])
 
-  // Hàm đánh dấu đã đọc
   const markAsRead = async (id) => {
-      try {
-          await updateDoc(doc(db, 'notifications', id), { isRead: true })
-      } catch (e) { console.error(e) }
+      try { await updateDoc(doc(db, 'notifications', id), { isRead: true }) } catch (e) { console.error(e) }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-800">
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
       
-      {/* SIDEBAR */}
-      <aside className="bg-white border-r border-slate-200 md:w-64 flex-shrink-0 flex flex-col sticky top-0 h-auto md:h-screen z-50">
-        <div className="p-4 border-b border-slate-100 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-lg shadow-sm shrink-0">
-            {user.name?.[0]?.toUpperCase() || 'U'}
-          </div>
-          <div className="overflow-hidden">
-            <h2 className="font-bold text-slate-800 truncate">{user.name}</h2>
-            <p className="text-xs text-slate-500 uppercase font-semibold tracking-wider">
-              {user.role === 'KITCHEN' ? 'BẾP' : (user.role === 'MANAGER' ? 'QUẢN LÝ' : 'PHỤC VỤ')}
-            </p>
-          </div>
+      {/* --- SIDEBAR --- */}
+      <aside className={`
+        bg-white border-r border-slate-200 flex flex-col transition-all duration-300 ease-in-out z-50
+        ${collapsed ? 'w-20' : 'w-64'} 
+      `}>
+        
+        {/* 1. HEADER: Logo & Toggle Button */}
+        <div className={`
+            h-16 flex items-center border-b border-slate-100 px-4 transition-all
+            ${collapsed ? 'justify-center' : 'justify-between'}
+        `}>
+          {!collapsed && (
+            <div className="font-bold text-xl text-emerald-700 tracking-tight flex items-center gap-2 truncate">
+               RMS Manager
+            </div>
+          )}
+          <button 
+            onClick={() => setCollapsed(!collapsed)}
+            className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+          >
+            {collapsed ? <PanelLeftOpen size={20}/> : <PanelLeftClose size={20}/>}
+          </button>
         </div>
 
-        <nav className="flex-1 p-2 space-y-1 overflow-y-auto custom-scrollbar">
-          {visibleItems.map(item => {
-            const Icon = item.icon
-            const isActive = route === item.id
-            return (
-              <button
-                key={item.id}
-                onClick={() => setRoute(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200
-                  ${isActive 
-                    ? 'bg-emerald-50 text-emerald-700 shadow-sm border-l-4 border-emerald-500' 
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border-l-4 border-transparent'
-                  }`}
-              >
-                <Icon size={18} className={isActive ? 'text-emerald-600' : 'text-slate-400'} />
-                {item.label}
-              </button>
-            )
-          })}
+        {/* 2. NAVIGATION LIST */}
+        <nav className="flex-1 overflow-y-auto py-4 custom-scrollbar">
+            {groups.map(groupName => {
+                const itemsInGroup = visibleItems.filter(i => i.group === groupName)
+                if (itemsInGroup.length === 0) return null
+
+                return (
+                    <div key={groupName} className="mb-6">
+                        {/* Tên nhóm (Chỉ hiện khi mở rộng) */}
+                        {!collapsed && groupName !== 'Chung' && (
+                            <div className="px-4 mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                                {groupName}
+                            </div>
+                        )}
+                        
+                        {/* Các Items trong nhóm */}
+                        <div className="space-y-1 px-3">
+                            {itemsInGroup.map(item => {
+                                const Icon = item.icon
+                                const isActive = route === item.id
+                                return (
+                                    <button
+                                        key={item.id}
+                                        onClick={() => setRoute(item.id)}
+                                        title={collapsed ? item.label : ''} // Tooltip đơn giản khi thu gọn
+                                        className={`
+                                            flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full group relative
+                                            ${collapsed ? 'justify-center' : ''}
+                                            ${isActive 
+                                              ? 'bg-emerald-50 text-emerald-700 font-bold shadow-sm' 
+                                              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}
+                                        `}
+                                    >
+                                        <Icon size={20} className={`shrink-0 transition-colors ${isActive ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                                        
+                                        {!collapsed && (
+                                            <span className="text-sm font-medium whitespace-nowrap origin-left animate-fadeIn">
+                                                {item.label}
+                                            </span>
+                                        )}
+                                        
+                                        {/* Thanh chỉ thị Active (bên trái) */}
+                                        {isActive && !collapsed && (
+                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-emerald-500 rounded-r-full" />
+                                        )}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    </div>
+                )
+            })}
         </nav>
 
-        <div className="p-4 border-t border-slate-100">
-          <button onClick={onLogout} className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-rose-600 hover:bg-rose-50 transition-colors">
-            <LogOut size={18} /> Đăng xuất
-          </button>
+        {/* 3. FOOTER: User Profile & Logout */}
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50">
+           <div className={`flex items-center gap-3 ${collapsed ? 'flex-col justify-center' : ''}`}>
+              {/* Avatar */}
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold shrink-0 border-2 border-white shadow-sm">
+                 {user.name?.[0]?.toUpperCase() || 'U'}
+              </div>
+
+              {/* Info Text (Ẩn khi thu gọn) */}
+              {!collapsed && (
+                 <div className="flex-1 min-w-0 overflow-hidden">
+                    <h2 className="font-bold text-sm text-slate-700 truncate" title={user.name}>{user.name}</h2>
+                    <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider truncate">
+                       {user.role === 'KITCHEN' ? 'BẾP' : (user.role === 'MANAGER' ? 'QUẢN LÝ' : 'PHỤC VỤ')}
+                    </p>
+                 </div>
+              )}
+
+              {/* Logout Button */}
+              <button 
+                  onClick={onLogout} 
+                  title="Đăng xuất"
+                  className={`
+                      text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg p-2 transition-colors
+                      ${collapsed ? 'mt-2' : ''}
+                  `}
+              >
+                  <LogOut size={18} />
+              </button>
+           </div>
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 overflow-y-auto h-screen p-4 md:p-6 scroll-smooth bg-slate-50 relative">
+      {/* --- MAIN CONTENT AREA --- */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-slate-50">
         
-        {/* --- [MỚI] KHU VỰC CHUÔNG THÔNG BÁO (GÓC PHẢI TRÊN) --- */}
+        {/* BELL NOTIFICATION (Top Right Absolute) */}
         {isManager && (
             <div className="absolute top-5 right-6 z-[60]">
-                {/* Nút Chuông */}
                 <button 
                     onClick={() => setShowNotifPanel(!showNotifPanel)}
                     className="relative p-2.5 bg-white rounded-full shadow-md hover:bg-slate-50 text-slate-600 transition border border-slate-100"
                 >
-                    <Bell size={22} />
+                    <Bell size={20} />
                     {notifs.length > 0 && (
                         <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-bounce shadow-sm border border-white">
                             {notifs.length}
@@ -159,9 +231,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
                                         </div>
                                         <div className="text-sm font-bold text-slate-800 mb-0.5 group-hover:text-red-700 transition-colors">{n.title}</div>
                                         <div className="text-xs text-slate-600 leading-relaxed">{n.message}</div>
-                                        
-                                        {/* Dot chưa đọc */}
-                                        <div className="absolute top-4 right-2 w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>
+                                        {!n.isRead && <div className="absolute top-4 right-2 w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>}
                                     </div>
                                 ))
                             )}
@@ -171,10 +241,13 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
             </div>
         )}
 
-        {/* Content Children */}
-        <div className="max-w-7xl mx-auto h-full flex flex-col pt-4 md:pt-0">
-          {children}
+        {/* PAGE CONTENT CONTAINER */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth custom-scrollbar">
+           <div className="max-w-7xl mx-auto h-full flex flex-col">
+              {children}
+           </div>
         </div>
+
       </main>
     </div>
   )
