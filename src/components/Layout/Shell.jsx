@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { 
   LayoutDashboard, 
-  Menu as MenuIcon, // Đổi tên alias để tránh trùng với tên component
+  Menu as MenuIcon, 
   Users, 
   BarChart3, 
   LogOut, 
@@ -13,8 +13,8 @@ import {
   Package,
   Bell,
   X,
-  PanelLeftClose, // Icon đóng sidebar
-  PanelLeftOpen   // Icon mở sidebar
+  PanelLeftClose, 
+  PanelLeftOpen   
 } from 'lucide-react'
 import { collection, query, where, onSnapshot, updateDoc, doc, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase'
@@ -22,10 +22,9 @@ import { db } from '../../firebase'
 export default function Shell({ user, route, setRoute, onLogout, children }) {
   
   // --- STATE UI ---
-  const [collapsed, setCollapsed] = useState(false) // Trạng thái thu gọn sidebar
+  const [collapsed, setCollapsed] = useState(false) 
 
   // --- MENU CONFIG ---
-  // Thêm thuộc tính 'group' để phân nhóm
   const navItems = [
     // Nhóm CHUNG
     { id: 'dashboard', label: 'Tổng quan',    icon: LayoutDashboard, roles: ['MANAGER', 'STAFF', 'KITCHEN'], group: 'Chung' },
@@ -44,17 +43,20 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
     { id: 'reports',   label: 'Báo cáo',      icon: BarChart3,       roles: ['MANAGER'],                    group: 'Quản trị' },
   ]
 
-  // Lọc item theo quyền & Danh sách các nhóm
   const visibleItems = navItems.filter(item => item.roles.includes(user.role))
   const groups = ['Chung', 'Vận hành', 'Quản trị']
 
-  // --- LOGIC THÔNG BÁO (GIỮ NGUYÊN) ---
+  // --- LOGIC THÔNG BÁO ---
   const [notifs, setNotifs] = useState([])
   const [showNotifPanel, setShowNotifPanel] = useState(false)
-  const isManager = user?.role === 'MANAGER'
+  
+  // [CẬP NHẬT QUYỀN] Cho phép cả Quản lý và Phục vụ nhận thông báo
+  // Vì Bếp báo hết món -> Phục vụ cần biết để đổi món cho khách
+  const canViewNotifs = ['MANAGER', 'STAFF'].includes(user?.role)
 
   useEffect(() => {
-    if (!isManager) return
+    if (!canViewNotifs) return // Chỉ chạy nếu có quyền
+
     const q = query(
         collection(db, 'notifications'), 
         where('isRead', '==', false),
@@ -66,7 +68,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
        setNotifs(list)
     }, (err) => console.log("Lỗi tải thông báo:", err))
     return () => unsub()
-  }, [isManager])
+  }, [canViewNotifs])
 
   const markAsRead = async (id) => {
       try { await updateDoc(doc(db, 'notifications', id), { isRead: true }) } catch (e) { console.error(e) }
@@ -107,14 +109,11 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
 
                 return (
                     <div key={groupName} className="mb-6">
-                        {/* Tên nhóm (Chỉ hiện khi mở rộng) */}
                         {!collapsed && groupName !== 'Chung' && (
                             <div className="px-4 mb-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
                                 {groupName}
                             </div>
                         )}
-                        
-                        {/* Các Items trong nhóm */}
                         <div className="space-y-1 px-3">
                             {itemsInGroup.map(item => {
                                 const Icon = item.icon
@@ -123,7 +122,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
                                     <button
                                         key={item.id}
                                         onClick={() => setRoute(item.id)}
-                                        title={collapsed ? item.label : ''} // Tooltip đơn giản khi thu gọn
+                                        title={collapsed ? item.label : ''}
                                         className={`
                                             flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 w-full group relative
                                             ${collapsed ? 'justify-center' : ''}
@@ -132,18 +131,17 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
                                               : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'}
                                         `}
                                     >
-                                        <Icon size={20} className={`shrink-0 transition-colors ${isActive ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
-                                        
-                                        {!collapsed && (
-                                            <span className="text-sm font-medium whitespace-nowrap origin-left animate-fadeIn">
-                                                {item.label}
-                                            </span>
-                                        )}
-                                        
-                                        {/* Thanh chỉ thị Active (bên trái) */}
-                                        {isActive && !collapsed && (
-                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-emerald-500 rounded-r-full" />
-                                        )}
+                                            <Icon size={20} className={`shrink-0 transition-colors ${isActive ? 'text-emerald-600' : 'text-slate-400 group-hover:text-slate-600'}`} />
+                                            
+                                            {!collapsed && (
+                                                <span className="text-sm font-medium whitespace-nowrap origin-left animate-fadeIn">
+                                                    {item.label}
+                                                </span>
+                                            )}
+                                            
+                                            {isActive && !collapsed && (
+                                                <div className="absolute left-0 top-1/2 -translate-y-1/2 h-8 w-1 bg-emerald-500 rounded-r-full" />
+                                            )}
                                     </button>
                                 )
                             })}
@@ -156,32 +154,29 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
         {/* 3. FOOTER: User Profile & Logout */}
         <div className="p-4 border-t border-slate-100 bg-slate-50/50">
            <div className={`flex items-center gap-3 ${collapsed ? 'flex-col justify-center' : ''}`}>
-              {/* Avatar */}
-              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold shrink-0 border-2 border-white shadow-sm">
+             <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold shrink-0 border-2 border-white shadow-sm">
                  {user.name?.[0]?.toUpperCase() || 'U'}
-              </div>
+             </div>
 
-              {/* Info Text (Ẩn khi thu gọn) */}
-              {!collapsed && (
+             {!collapsed && (
                  <div className="flex-1 min-w-0 overflow-hidden">
                     <h2 className="font-bold text-sm text-slate-700 truncate" title={user.name}>{user.name}</h2>
                     <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider truncate">
                        {user.role === 'KITCHEN' ? 'BẾP' : (user.role === 'MANAGER' ? 'QUẢN LÝ' : 'PHỤC VỤ')}
                     </p>
                  </div>
-              )}
+             )}
 
-              {/* Logout Button */}
-              <button 
-                  onClick={onLogout} 
-                  title="Đăng xuất"
-                  className={`
-                      text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg p-2 transition-colors
-                      ${collapsed ? 'mt-2' : ''}
-                  `}
-              >
-                  <LogOut size={18} />
-              </button>
+             <button 
+                 onClick={onLogout} 
+                 title="Đăng xuất"
+                 className={`
+                     text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg p-2 transition-colors
+                     ${collapsed ? 'mt-2' : ''}
+                 `}
+             >
+                 <LogOut size={18} />
+             </button>
            </div>
         </div>
       </aside>
@@ -189,8 +184,8 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
       {/* --- MAIN CONTENT AREA --- */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative bg-slate-50">
         
-        {/* BELL NOTIFICATION (Top Right Absolute) */}
-        {isManager && (
+        {/* [HIỂN THỊ CHUÔNG CHO MANAGER VÀ STAFF] */}
+        {canViewNotifs && (
             <div className="absolute top-5 right-6 z-[60]">
                 <button 
                     onClick={() => setShowNotifPanel(!showNotifPanel)}
@@ -208,7 +203,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
                 {showNotifPanel && (
                     <div className="absolute right-0 mt-3 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn origin-top-right">
                         <div className="p-3 border-b bg-slate-50 font-bold flex justify-between items-center text-sm text-slate-700">
-                            <span className="flex items-center gap-2">🔔 Thông báo mới ({notifs.length})</span>
+                            <span className="flex items-center gap-2">🔔 Thông báo ({notifs.length})</span>
                             <button onClick={()=>setShowNotifPanel(false)} className="hover:bg-slate-200 rounded p-1"><X size={16}/></button>
                         </div>
                         
@@ -216,7 +211,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
                             {notifs.length === 0 ? (
                                 <div className="p-8 text-center text-slate-400 text-sm flex flex-col items-center gap-2">
                                     <Bell size={32} className="opacity-20"/>
-                                    <span>Hệ thống bình thường.<br/>Không có cảnh báo mới.</span>
+                                    <span>Hệ thống bình thường.<br/>Không có tin nhắn mới.</span>
                                 </div>
                             ) : (
                                 notifs.map(n => (
@@ -226,11 +221,20 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
                                         className="p-4 border-b last:border-0 hover:bg-red-50 cursor-pointer transition-colors group relative"
                                     >
                                         <div className="flex justify-between items-start mb-1">
-                                            <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded-full uppercase tracking-wider">{n.type === 'low_stock' ? 'Kho hàng' : 'Hệ thống'}</span>
+                                            {/* Phân loại Badge */}
+                                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                                n.type === 'kitchen_issue' ? 'bg-orange-100 text-orange-700' : 
+                                                n.type === 'low_stock' ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'
+                                            }`}>
+                                                {n.type === 'kitchen_issue' ? 'BẾP BÁO' : (n.type === 'low_stock' ? 'KHO HÀNG' : 'HỆ THỐNG')}
+                                            </span>
                                             <span className="text-[10px] text-slate-400">{n.createdAt?.toDate ? n.createdAt.toDate().toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}) : 'Vừa xong'}</span>
                                         </div>
                                         <div className="text-sm font-bold text-slate-800 mb-0.5 group-hover:text-red-700 transition-colors">{n.title}</div>
-                                        <div className="text-xs text-slate-600 leading-relaxed">{n.message}</div>
+                                        
+                                        {/* [FIX] whitespace-pre-line: Giúp hiển thị xuống dòng cho danh sách thiếu */}
+                                        <div className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">{n.message}</div>
+                                        
                                         {!n.isRead && <div className="absolute top-4 right-2 w-2 h-2 bg-red-500 rounded-full shadow-sm"></div>}
                                     </div>
                                 ))
@@ -244,7 +248,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
         {/* PAGE CONTENT CONTAINER */}
         <div className="flex-1 overflow-y-auto p-4 md:p-6 scroll-smooth custom-scrollbar">
            <div className="max-w-7xl mx-auto h-full flex flex-col">
-              {children}
+             {children}
            </div>
         </div>
 

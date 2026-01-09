@@ -1,117 +1,152 @@
 import React, { useEffect, useState } from 'react'
-import { collection, getDocs, updateDoc, doc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase'
-import { X, Plus, Trash2, Save } from 'lucide-react'
+import { X, Plus, Save, Trash2, ChefHat, AlertTriangle } from 'lucide-react'
 
-// Thêm prop onSuccess
-export default function RecipeModal({ menuItem, onClose, onSuccess }) {
+// showToast được truyền từ Menu.jsx
+export default function RecipeModal({ menuItem, onClose, onSuccess, showToast }) {
   const [inventory, setInventory] = useState([])
-  
-  // KHỞI TẠO QUAN TRỌNG: Kiểm tra kỹ recipe có tồn tại không
-  const [recipe, setRecipe] = useState(menuItem.recipe || []) 
-  
-  const [selectedIng, setSelectedIng] = useState('')
-  const [amount, setAmount] = useState('')
+  const [rows, setRows] = useState(menuItem.recipe || [])
+  const [loading, setLoading] = useState(true)
 
+  // Load danh sách kho để chọn
   useEffect(() => {
-    const fetchInv = async () => {
-        const snap = await getDocs(collection(db, 'inventory'))
-        setInventory(snap.docs.map(d => ({id: d.id, ...d.data()})))
-    }
-    fetchInv()
+    const unsub = onSnapshot(collection(db, 'inventory'), (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      list.sort((a,b) => a.name.localeCompare(b.name))
+      setInventory(list)
+      setLoading(false)
+    })
+    return () => unsub()
   }, [])
 
-  const handleAddIngredient = () => {
-    if(!selectedIng || !amount) return
-    const ingData = inventory.find(i => i.id === selectedIng)
-    
-    const newItem = {
-        ingredientId: ingData.id,
-        name: ingData.name,
-        unit: ingData.unit,
-        quantity: Number(amount)
+  const addRow = () => {
+    setRows([...rows, { ingredientId: '', quantity: 1 }])
+  }
+
+  const removeRow = (index) => {
+    const newRows = [...rows]
+    newRows.splice(index, 1)
+    setRows(newRows)
+  }
+
+  const updateRow = (index, field, value) => {
+    const newRows = [...rows]
+    newRows[index][field] = value
+    setRows(newRows)
+  }
+
+  const handleSave = async () => {
+    // Validate
+    const isValid = rows.every(r => r.ingredientId && r.quantity > 0)
+    if (!isValid) {
+        showToast("⚠️ Vui lòng chọn nguyên liệu và nhập số lượng > 0", "error")
+        return
     }
-    setRecipe([...recipe, newItem])
-    setSelectedIng(''); setAmount('')
-  }
 
-  const handleRemove = (index) => {
-    const newR = [...recipe]
-    newR.splice(index, 1)
-    setRecipe(newR)
-  }
-
-  const handleSaveRecipe = async () => {
     try {
-        // --- SỬA LỖI Ở ĐÂY ---
-        // 1. Đảm bảo dùng đúng collection 'menu_items'
-        // 2. Kiểm tra ID có tồn tại không
-        if (!menuItem.id) {
-            alert("Lỗi: Không tìm thấy ID món ăn")
-            return
-        }
-
         await updateDoc(doc(db, 'menu_items', menuItem.id), {
-            recipe: recipe
+            recipe: rows
         })
-
-        alert("Đã lưu công thức thành công!")
-        
-        // 3. Gọi hàm refresh dữ liệu bên ngoài trước khi đóng
-        if (onSuccess) onSuccess()
-        
+        showToast(`✅ Đã lưu công thức cho món: ${menuItem.name}`, "success")
+        onSuccess()
         onClose()
-    } catch (e) { 
-        console.error("Lỗi lưu:", e)
-        alert("Lỗi lưu công thức: " + e.message) 
+    } catch (error) {
+        console.error(error)
+        showToast("Lỗi khi lưu công thức!", "error")
     }
   }
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-fadeIn flex flex-col max-h-[90vh]">
-         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
-            <h3 className="font-bold text-lg">Công thức: {menuItem.name}</h3>
-            <button onClick={onClose}><X size={20}/></button>
-         </div>
-         
-         <div className="p-6 space-y-4 overflow-y-auto">
-            {/* Form thêm */}
-            <div className="flex gap-2 items-end">
-                <div className="flex-1">
-                    <label className="text-xs font-bold text-slate-500">Nguyên liệu kho</label>
-                    <select value={selectedIng} onChange={e=>setSelectedIng(e.target.value)} className="w-full p-2 border rounded-lg bg-white">
-                        <option value="">-- Chọn --</option>
-                        {inventory.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
-                    </select>
-                </div>
-                <div className="w-24">
-                    <label className="text-xs font-bold text-slate-500">Định lượng</label>
-                    <input type="number" placeholder="0" value={amount} onChange={e=>setAmount(e.target.value)} className="w-full p-2 border rounded-lg"/>
-                </div>
-                <button onClick={handleAddIngredient} className="p-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><Plus size={20}/></button>
-            </div>
+        
+        {/* HEADER */}
+        <div className="p-4 border-b bg-emerald-50 flex justify-between items-center">
+            <h3 className="font-bold text-lg text-emerald-800 flex items-center gap-2">
+                <ChefHat size={20}/> Công thức: {menuItem.name}
+            </h3>
+            <button onClick={onClose} className="p-1 hover:bg-emerald-100 rounded text-emerald-700"><X size={20}/></button>
+        </div>
 
-            {/* Danh sách định lượng */}
-            <div className="bg-slate-50 rounded-lg p-3 min-h-[100px]">
-                {recipe.length === 0 && <p className="text-center text-slate-400 text-sm py-4">Chưa có thành phần nào.</p>}
-                {recipe.map((r, idx) => (
-                    <div key={idx} className="flex justify-between items-center py-2 border-b border-slate-200 last:border-0">
-                        <span className="font-bold text-slate-700">{r.name}</span>
-                        <div className="flex items-center gap-3">
-                            <span className="text-emerald-600 font-mono font-bold">{r.quantity} {r.unit}</span>
-                            <button onClick={()=>handleRemove(idx)} className="text-rose-500 hover:text-rose-700"><Trash2 size={16}/></button>
+        {/* BODY */}
+        <div className="p-4 overflow-y-auto custom-scrollbar flex-1">
+            {loading ? <p className="text-center py-4 text-slate-500">Đang tải kho...</p> : (
+                <div className="space-y-3">
+                    {rows.length === 0 && (
+                        <div className="text-center py-8 text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                            <AlertTriangle className="mx-auto mb-2 opacity-50"/>
+                            <p className="text-sm">Chưa có nguyên liệu nào.</p>
+                            <p className="text-xs">Bấm "Thêm dòng" để bắt đầu định lượng.</p>
                         </div>
-                    </div>
-                ))}
-            </div>
-         </div>
+                    )}
 
-         <div className="p-4 border-t shrink-0">
-            <button onClick={handleSaveRecipe} className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 flex items-center justify-center gap-2">
-                <Save size={18}/> Lưu Công Thức
+                    {rows.map((row, idx) => {
+                        // Tìm unit của nguyên liệu đang chọn để hiển thị
+                        const selectedInv = inventory.find(i => i.id === row.ingredientId)
+                        const unit = selectedInv ? selectedInv.unit : ''
+
+                        return (
+                            <div key={idx} className="flex gap-2 items-center animate-fadeIn">
+                                <span className="text-xs font-bold text-slate-400 w-5">{idx + 1}.</span>
+                                
+                                {/* Select Nguyên liệu */}
+                                <select 
+                                    className="flex-1 p-2 border rounded-lg text-sm bg-white focus:border-emerald-500 outline-none"
+                                    value={row.ingredientId}
+                                    onChange={e => updateRow(idx, 'ingredientId', e.target.value)}
+                                >
+                                    <option value="">-- Chọn nguyên liệu --</option>
+                                    {inventory.map(inv => (
+                                        <option key={inv.id} value={inv.id}>
+                                            {inv.name} (Tồn: {inv.quantity} {inv.unit})
+                                        </option>
+                                    ))}
+                                </select>
+
+                                {/* Input Số lượng */}
+                                <div className="relative w-24">
+                                    <input 
+                                        type="number" 
+                                        min="0.1" step="0.1"
+                                        className="w-full p-2 border rounded-lg text-sm text-center font-bold outline-none focus:border-emerald-500"
+                                        value={row.quantity}
+                                        onChange={e => updateRow(idx, 'quantity', e.target.value)}
+                                        placeholder="SL"
+                                    />
+                                    {unit && <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 bg-white px-1">{unit}</span>}
+                                </div>
+
+                                {/* Nút Xóa */}
+                                <button onClick={() => removeRow(idx)} className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition">
+                                    <Trash2 size={18}/>
+                                </button>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </div>
+
+        {/* FOOTER */}
+        <div className="p-4 border-t bg-slate-50 flex justify-between gap-3">
+            <button 
+                onClick={addRow} 
+                className="px-4 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg text-sm hover:bg-slate-100 flex items-center gap-2 shadow-sm"
+            >
+                <Plus size={16}/> Thêm dòng
             </button>
-         </div>
+            <div className="flex gap-2">
+                <button onClick={onClose} className="px-4 py-2 text-slate-500 font-bold text-sm hover:underline">Hủy</button>
+                <button 
+                    onClick={handleSave} 
+                    className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg text-sm hover:bg-emerald-700 flex items-center gap-2 shadow-md transition-transform active:scale-95"
+                >
+                    <Save size={16}/> Lưu công thức
+                </button>
+            </div>
+        </div>
+
       </div>
     </div>
   )

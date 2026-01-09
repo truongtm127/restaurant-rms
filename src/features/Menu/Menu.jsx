@@ -14,7 +14,6 @@ import {
   serverTimestamp,
   query,
   getDoc,
-  where
 } from 'firebase/firestore';
 import { db } from '../../firebase';
 import ItemCard from './ItemCard';
@@ -32,20 +31,17 @@ export default function Menu({
   setActiveTable,
   setActiveOrderId,
   setRoute,
+  showToast // <--- Nhận hàm showToast từ App
 }) {
-  // --- State dữ liệu ---
   const [items, setItems] = useState([]);
-  const [inventory, setInventory] = useState([]); 
   const [loading, setLoading] = useState(false);
   const [cursor, setCursor] = useState(null);
   const isManager = user?.role === 'MANAGER';
 
-  // --- UI Filter/Search ---
   const [q, setQ] = useState('');
   const [category, setCategory] = useState('Tất cả');
   const [sortBy, setSortBy] = useState('popular');
 
-  // --- Order State ---
   const [orderItems, setOrderItems] = useState([]);
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderNote, setOrderNote] = useState('');
@@ -58,7 +54,7 @@ export default function Menu({
   const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', action: null });
   const openConfirm = (title, message, action) => setConfirmConfig({ isOpen: true, title, message, action });
 
-  // --- 1. DATA FETCHING ---
+  // 1. DATA FETCHING
   async function loadPage(reset = false) {
     setLoading(true);
     try {
@@ -76,16 +72,7 @@ export default function Menu({
 
   useEffect(() => { loadPage(true); }, []);
 
-  // --- 2. LẮNG NGHE KHO (INVENTORY) ---
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'inventory'), (snap) => {
-        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setInventory(list);
-    });
-    return () => unsub();
-  }, []);
-
-  // --- 3. LẮNG NGHE GIỎ HÀNG ---
+  // 2. LẮNG NGHE GIỎ HÀNG
   useEffect(() => {
     if (!activeOrderId) { 
       setOrderItems([]); setOrderNote(''); return; 
@@ -107,7 +94,7 @@ export default function Menu({
   const cartTotal = orderItems.reduce((s, i) => s + Number(i.price || 0) * Number(i.qty || 1), 0);
   const hasItems = orderItems.length > 0;
 
-  // --- LOGIC GỬI BẾP ---
+  // 3. LOGIC GỬI BẾP
   const handleBackToOrder = async () => {
     if (activeOrderId) {
       if (hasItems) {
@@ -131,9 +118,21 @@ export default function Menu({
           }
 
           await updateDoc(orderRef, {
-            status: 'pending', items: finalItems, total: cartTotal, note: orderNote, updatedAt: serverTimestamp()
+            status: 'pending', 
+            kitchenNote: null, 
+            items: finalItems,
+            total: cartTotal,
+            note: orderNote,
+            updatedAt: serverTimestamp()
           });
-        } catch (error) { console.error("Lỗi gửi bếp:", error); return; }
+          
+          showToast("✅ Đã gửi thực đơn xuống bếp!", "success");
+
+        } catch (error) { 
+            console.error("Lỗi gửi bếp:", error); 
+            showToast("Lỗi hệ thống khi gửi bếp!", "error");
+            return; 
+        }
       } else {
         try {
             await deleteDoc(doc(db, 'orders', activeOrderId));
@@ -153,120 +152,12 @@ export default function Menu({
   const handleUpdate = async (id, d) => { await updateDoc(doc(db, 'menu_items', id), d); await loadPage(true); };
   const handleDelete = (m) => { openConfirm('Xóa', `Xóa "${m.name}"?`, async () => { await deleteDoc(doc(db, 'menu_items', m.id)); await loadPage(true); }); };
 
-  // =======================================================================
-  // HÀM KIỂM TRA TỒN KHO (ĐÃ SỬA LỖI TRỪ LẶP)
-  // =======================================================================
-  const validateStock = async (menuItem, addQuantity = 1) => {
-    if (!menuItem.recipe || menuItem.recipe.length === 0) return true; 
-    if (inventory.length === 0) return true;
-
-    // 1. Chỉ lấy các đơn ĐANG NẤU (pending/cooking). 
-    // KHÔNG lấy đơn 'served' vì 'served' đã bị trừ kho thật rồi -> Tránh trừ 2 lần.
-    const q = query(collection(db, 'orders'), where('status', 'in', ['pending', 'cooking']));
-    const ordersSnap = await getDocs(q);
-    
-    // 2. Quét Sub-collection items
-    const fetchPromises = ordersSnap.docs.map(doc => 
-        getDocs(collection(db, 'orders', doc.id, 'items'))
-    );
-    const allItemsSnaps = await Promise.all(fetchPromises);
-
-    // 3. Tổng hợp usage
-    const usageMap = {}; 
-
-    // A. Cộng dồn từ các đơn Bếp đang làm (Pending/Cooking)
-    allItemsSnaps.forEach(snap => {
-        snap.forEach(docItem => {
-            const itemData = docItem.data();
-            let itemRecipe = itemData.recipe;
-            if (!itemRecipe && itemData.menuItemId === menuItem.id) {
-                itemRecipe = menuItem.recipe;
-            }
-
-            if (itemRecipe && Array.isArray(itemRecipe)) {
-                // Chỉ tính lượng chưa hoàn thành (đang nấu)
-                // Tuy nhiên ở Menu, ta cứ tính full lượng pending/cooking cho an toàn
-                const qtyOccupied = Number(itemData.qty || 0); 
-                
-                itemRecipe.forEach(ing => {
-                    if (ing.ingredientId) {
-                        const needed = (Number(ing.quantity) || 0) * qtyOccupied;
-                        usageMap[ing.ingredientId] = (usageMap[ing.ingredientId] || 0) + needed;
-                    }
-                });
-            }
-        });
-    });
-
-    // B. Cộng dồn từ Giỏ hàng hiện tại (Order Items Local)
-    // Những món này chưa gửi bếp nhưng đang nằm trong giỏ, cũng phải giữ hàng
-    orderItems.forEach(cartItem => {
-        let itemRecipe = cartItem.recipe;
-        if (!itemRecipe && cartItem.menuItemId === menuItem.id) itemRecipe = menuItem.recipe;
-
-        if (itemRecipe && Array.isArray(itemRecipe)) {
-            const qtyInCart = Number(cartItem.qty || 0);
-            itemRecipe.forEach(ing => {
-                if (ing.ingredientId) {
-                    const needed = (Number(ing.quantity) || 0) * qtyInCart;
-                    usageMap[ing.ingredientId] = (usageMap[ing.ingredientId] || 0) + needed;
-                }
-            });
-        }
-    });
-
-    // 4. So sánh và Tìm lỗi
-    const errors = [];
-    menuItem.recipe.forEach(ing => {
-        const invItem = inventory.find(i => i.id === ing.ingredientId);
-        if (invItem) {
-            const stockReal = Number(invItem.quantity) || 0; // Tồn kho vật lý (đã trừ served)
-            const stockReserved = usageMap[ing.ingredientId] || 0; // Đang nấu/chờ nấu
-            const stockAvailable = stockReal - stockReserved; // Còn lại thực sự
-            
-            const needingNow = (Number(ing.quantity) || 0) * addQuantity;
-
-            // Debug Log để kiểm tra
-            console.log(`${invItem.name}: Real=${stockReal} - Reserved=${stockReserved} = Avail ${stockAvailable}. Need ${needingNow}`);
-
-            if (stockAvailable < needingNow) {
-                errors.push(`${invItem.name} (Khả dụng: ${stockAvailable.toFixed(1)}, Cần: ${needingNow.toFixed(1)})`);
-            }
-        }
-    });
-
-    // 5. CHẶN VÀ THÔNG BÁO
-    if (errors.length > 0) {
-        const msg = `Không thể gọi món "${menuItem.name}" tại Bàn ${activeTable?.name || '???'} do hết: ${errors.join(', ')}`;
-        
-        try {
-            await addDoc(collection(db, 'notifications'), {
-                type: 'out_of_stock',
-                title: '🚨 HẾT HÀNG (MENU)',
-                message: msg,
-                isRead: false,
-                createdAt: serverTimestamp(),
-                createdBy: user.name || 'Staff'
-            });
-        } catch (e) {}
-
-        alert(`⛔ HẾT NGUYÊN LIỆU!\n\n${msg}`);
-        return false;
-    }
-    return true;
-  }
-
-  // =======================================================================
-  // LOGIC THÊM MÓN
-  // =======================================================================
   const addToOrder = async (m) => {
-    if (!activeTable || !activeOrderId) { alert('Vui lòng chọn bàn trước!'); return; }
+    if (!activeTable || !activeOrderId) { 
+        showToast('⚠️ Vui lòng chọn bàn trước khi gọi món!', 'error'); 
+        return; 
+    }
     
-    // --- [CHECK KHO] ---
-    const canAdd = await validateStock(m, 1);
-    if (!canAdd) return; 
-    // -------------------
-
     const existingItem = orderItems.find(it => it.menuItemId === m.id);
     
     if (existingItem) {
@@ -274,18 +165,21 @@ export default function Menu({
         await updateDoc(doc(db, 'orders', activeOrderId, 'items', existingItem.id), { qty: nextQty });
     } else {
         await addDoc(collection(db, 'orders', activeOrderId, 'items'), {
-          menuItemId: m.id, 
-          name: m.name, 
-          price: Number(m.price || 0), 
-          qty: 1, 
-          note: '',
-          recipe: m.recipe || [] 
+          menuItemId: m.id, name: m.name, price: Number(m.price || 0), qty: 1, note: ''
         });
     }
-    
+
     try { 
-        if (activeTable.status === 'FREE') await updateDoc(doc(db, 'tables', activeTable.id), { status: 'BUSY' }); 
-    } catch (e) {}
+        await updateDoc(doc(db, 'orders', activeOrderId), {
+            updatedAt: serverTimestamp(),
+            createdByName: user.name || user.email,
+            createdBy: user.uid
+        });
+
+        if (activeTable.status === 'FREE') {
+            await updateDoc(doc(db, 'tables', activeTable.id), { status: 'BUSY' }); 
+        }
+    } catch (e) { console.error(e) }
   };
 
   const removeItem = (item) => {
@@ -297,6 +191,7 @@ export default function Menu({
             await deleteDoc(doc(db, 'orders', activeOrderId));                
             await updateDoc(doc(db, 'tables', activeTable.id), { status: 'FREE' }); 
             setActiveTable(null); setActiveOrderId(null); setRoute('order');
+            showToast("Đã hủy đơn hàng!", "success");
         });
     } else {
         openConfirm("Xóa món", `Xóa "${item.name}" khỏi giỏ?`, async () => { 
@@ -426,6 +321,7 @@ export default function Menu({
             menuItem={recipeEditing} 
             onClose={() => setRecipeEditing(null)} 
             onSuccess={() => loadPage(true)} 
+            showToast={showToast} // [CẬP NHẬT] Truyền showToast xuống
         />
       )}
     </div>

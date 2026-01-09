@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { collection, query, where, limit, addDoc, updateDoc, doc, serverTimestamp, onSnapshot, getDocs, writeBatch } from 'firebase/firestore'
+import { collection, query, where, addDoc, updateDoc, doc, serverTimestamp, onSnapshot, getDocs, writeBatch } from 'firebase/firestore'
 import { Clock, LogIn, LogOut, UserCheck, History, AlertTriangle } from 'lucide-react'
 import { db } from '../../firebase'
+import ConfirmModal from '../../components/UI/ConfirmModal' // [MỚI] Import ConfirmModal
 
 // ... (Giữ nguyên các hàm helper formatTime, formatDate, calculateDuration)
 const formatTime = (timestamp) => {
@@ -24,18 +25,22 @@ const calculateDuration = (start, end) => {
   return diff.toFixed(1) + ' giờ'
 }
 
-export default function Attendance({ user }) {
+// [MỚI] Nhận prop showToast
+export default function Attendance({ user, showToast }) {
   const [currentSession, setCurrentSession] = useState(null)
   const [history, setHistory] = useState([])
   const [todayStaff, setTodayStaff] = useState([])
   const [loading, setLoading] = useState(true)
-  const [autoFixed, setAutoFixed] = useState(false) // State thông báo đã tự sửa lỗi
+  const [autoFixed, setAutoFixed] = useState(false)
 
-  // [MỚI] Hàm xử lý ca "treo" (Quên checkout hôm qua)
+  // State cho Modal xác nhận checkout
+  const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', action: null })
+  const openConfirm = (title, message, action) => setConfirmConfig({ isOpen: true, title, message, action })
+
+  // Hàm xử lý ca "treo" (Quên checkout hôm qua)
   const checkAndFixStaleSessions = async () => {
     const todayStr = new Date().toISOString().slice(0, 10)
     
-    // Tìm các ca đang WORKING của user này
     const q = query(
         collection(db, 'attendance'),
         where('userId', '==', user.uid),
@@ -48,10 +53,8 @@ export default function Attendance({ user }) {
 
     snap.docs.forEach(d => {
         const data = d.data()
-        // Nếu ngày của ca làm việc KHÔNG PHẢI hôm nay -> Tức là ca cũ quên checkout
         if (data.date !== todayStr) {
             fixedCount++
-            // Tạo thời gian checkout mặc định: 23:59:59 của ngày hôm đó
             const defaultCheckout = new Date(data.date)
             defaultCheckout.setHours(23, 59, 59)
 
@@ -65,21 +68,20 @@ export default function Attendance({ user }) {
 
     if (fixedCount > 0) {
         await batch.commit()
-        setAutoFixed(true) // Hiển thị thông báo cảnh báo
+        setAutoFixed(true)
     }
   }
 
   useEffect(() => {
-    // Chạy hàm kiểm tra lỗi ngay khi vào trang
     checkAndFixStaleSessions()
 
-    // 1. Lắng nghe session hiện tại (Chỉ lấy đúng ngày hôm nay)
+    // 1. Lắng nghe session hiện tại
     const todayStr = new Date().toISOString().slice(0, 10)
     const qCurrent = query(
       collection(db, 'attendance'),
       where('userId', '==', user.uid),
       where('status', '==', 'WORKING'),
-      where('date', '==', todayStr) // Chỉ lấy ca của hôm nay
+      where('date', '==', todayStr) 
     )
 
     const unsubCurrent = onSnapshot(qCurrent, (snap) => {
@@ -113,7 +115,7 @@ export default function Attendance({ user }) {
         const qStaff = query(
             collection(db, 'attendance'), 
             where('status', '==', 'WORKING'),
-            where('date', '==', todayStr) // Chỉ hiện ai đang làm HÔM NAY
+            where('date', '==', todayStr)
         )
         unsubStaff = onSnapshot(qStaff, (snap) => {
             setTodayStaff(snap.docs.map(d => ({ id: d.id, ...d.data() })))
@@ -124,7 +126,7 @@ export default function Attendance({ user }) {
   }, [user])
 
   const handleCheckIn = async () => {
-    if (autoFixed) setAutoFixed(false) // Tắt cảnh báo nếu có
+    if (autoFixed) setAutoFixed(false)
     try {
       setLoading(true)
       await addDoc(collection(db, 'attendance'), {
@@ -135,31 +137,42 @@ export default function Attendance({ user }) {
         status: 'WORKING',
         date: new Date().toISOString().slice(0, 10)
       })
+      showToast("✅ Check-in thành công! Bắt đầu ca làm việc.", "success")
     } catch (error) {
       console.error(error)
-      alert("Lỗi khi Check-in")
+      showToast("Lỗi khi Check-in", "error")
     } finally { setLoading(false) }
   }
 
   const handleCheckOut = async () => {
     if (!currentSession) return
-    if (!window.confirm("Xác nhận kết thúc ca làm việc?")) return
-
-    try {
-      setLoading(true)
-      await updateDoc(doc(db, 'attendance', currentSession.id), {
-        checkOut: serverTimestamp(),
-        status: 'COMPLETED'
-      })
-    } catch (error) {
-      console.error(error)
-      alert("Lỗi khi Check-out")
-    } finally { setLoading(false) }
+    
+    // [MỚI] Dùng ConfirmModal thay window.confirm
+    openConfirm(
+        "Kết thúc ca",
+        "Bạn có chắc chắn muốn Check-out kết thúc ca làm việc?",
+        async () => {
+            try {
+                setLoading(true)
+                await updateDoc(doc(db, 'attendance', currentSession.id), {
+                    checkOut: serverTimestamp(),
+                    status: 'COMPLETED'
+                })
+                showToast("✅ Đã Check-out thành công. Hẹn gặp lại!", "success")
+            } catch (error) {
+                console.error(error)
+                showToast("Lỗi khi Check-out", "error")
+            } finally { setLoading(false) }
+        }
+    )
   }
 
   return (
     <div className="space-y-6 animate-fadeIn pb-10">
       
+      {/* [MỚI] Confirm Modal */}
+      <ConfirmModal isOpen={confirmConfig.isOpen} onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} onConfirm={confirmConfig.action} title={confirmConfig.title} message={confirmConfig.message} />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div>
@@ -172,7 +185,7 @@ export default function Attendance({ user }) {
         </div>
       </div>
 
-      {/* [MỚI] Thông báo tự sửa lỗi */}
+      {/* Thông báo tự sửa lỗi */}
       {autoFixed && (
         <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3 animate-pulse">
             <AlertTriangle className="text-amber-600 shrink-0" />
@@ -271,7 +284,6 @@ export default function Attendance({ user }) {
                                 </td>
                                 <td className="p-4 font-medium">
                                     {calculateDuration(item.checkIn, item.checkOut)}
-                                    {/* Nếu có ghi chú tự động thì hiện icon cảnh báo nhỏ */}
                                     {item.note && <span className="ml-2 text-amber-500" title={item.note}>⚠️</span>}
                                 </td>
                                 <td className="p-4 text-center">

@@ -1,149 +1,232 @@
-import React, { useEffect, useState } from 'react'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import React, { useEffect, useState, useMemo } from 'react'
+import { 
+  collection, getDocs, query, where, orderBy, doc, getDoc 
+} from 'firebase/firestore'
 import { db } from '../../firebase'
-import { fmtVND } from '../../utils/helpers'
-import { Calendar, DollarSign, Calculator } from 'lucide-react'
+import { 
+  DollarSign, Calendar, Users, Clock, Search, 
+  ArrowRight, Wallet 
+} from 'lucide-react'
+
+// --- HELPER ---
+const fmtMoney = (num) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(num)
+
+const getLocalDateStr = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
 
 export default function Payroll() {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7)) // YYYY-MM
-  const [payrollData, setPayrollData] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [staffData, setStaffData] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState('')
 
-  // Hàm tính giờ làm giữa 2 mốc thời gian
-  const getHours = (start, end) => {
-    if (!start || !end) return 0
-    const s = start.seconds ? start.seconds * 1000 : start
-    const e = end.seconds ? end.seconds * 1000 : end
-    return (e - s) / (1000 * 60 * 60)
-  }
+  // State thời gian (Mặc định: Đầu tháng -> Hôm nay)
+  const today = new Date();
+  const firstDay = new Date(today.getFullYear(), today.getMonth(), 1); 
+  
+  const [startDate, setStartDate] = useState(getLocalDateStr(firstDay));
+  const [endDate, setEndDate] = useState(getLocalDateStr(today));
 
-  const fetchPayroll = async () => {
-    setLoading(true)
-    try {
-      // 1. Lấy danh sách nhân viên (để lấy hourlyRate)
-      const usersSnap = await getDocs(collection(db, 'users'))
-      const users = {}
-      usersSnap.forEach(doc => {
-          const d = doc.data()
-          users[doc.id] = { name: d.name, role: d.role, rate: d.hourlyRate || 0 }
-      })
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true)
+      try {
+        // 1. Lấy danh sách nhân viên
+        const usersSnap = await getDocs(collection(db, 'users'))
+        const usersMap = {}
+        usersSnap.forEach(d => {
+            const data = d.data()
+            usersMap[d.id] = {
+                id: d.id,
+                name: data.name || 'Unknown',
+                email: data.email,
+                role: data.role,
+                hourlyRate: Number(data.hourlyRate) || 25000, 
+                totalHours: 0,
+                shifts: 0
+            }
+        })
 
-      // 2. Lấy dữ liệu chấm công trong tháng đã chọn
-      // Lưu ý: date trong attendance lưu dạng YYYY-MM-DD
-      const startStr = `${month}-01`
-      const endStr = `${month}-31`
-      
-      const q = query(
-          collection(db, 'attendance'),
-          where('date', '>=', startStr),
-          where('date', '<=', endStr),
-          where('status', '==', 'COMPLETED') // Chỉ tính các ca đã Check-out
-      )
-      
-      const attendSnap = await getDocs(q)
-      
-      // 3. Tổng hợp dữ liệu
-      const report = {} // userId -> { totalHours, shifts }
+        // 2. Lấy dữ liệu chấm công
+        const start = new Date(startDate)
+        start.setHours(0,0,0,0)
+        
+        const end = new Date(endDate)
+        end.setHours(23,59,59,999)
 
-      attendSnap.forEach(doc => {
-          const d = doc.data()
-          if (!report[d.userId]) report[d.userId] = { totalHours: 0, shifts: 0 }
-          
-          const hours = getHours(d.checkIn, d.checkOut)
-          report[d.userId].totalHours += hours
-          report[d.userId].shifts += 1
-      })
+        const q = query(
+            collection(db, 'attendance'),
+            where('checkIn', '>=', start),
+            where('checkIn', '<=', end),
+            orderBy('checkIn', 'desc')
+        )
 
-      // 4. Map ra mảng kết quả cuối cùng
-      const result = Object.keys(report).map(uid => {
-          const uInfo = users[uid] || { name: 'Unknown', role: '?', rate: 0 }
-          const hours = report[uid].totalHours
-          return {
-              uid,
-              name: uInfo.name,
-              role: uInfo.role,
-              rate: uInfo.rate,
-              shifts: report[uid].shifts,
-              hours: hours,
-              salary: Math.round(hours * uInfo.rate)
-          }
-      })
+        const attendanceSnap = await getDocs(q)
 
-      setPayrollData(result)
+        // 3. Tính toán
+        attendanceSnap.forEach(d => {
+            const att = d.data()
+            const uid = att.userId
+            
+            if (usersMap[uid] && att.checkIn && att.checkOut) {
+                const s = att.checkIn.seconds * 1000
+                const e = att.checkOut.seconds * 1000
+                const durationHours = (e - s) / (1000 * 60 * 60)
+                
+                usersMap[uid].totalHours += durationHours
+                usersMap[uid].shifts += 1
+            }
+        })
 
-    } catch (error) { console.error(error) }
-    setLoading(false)
-  }
+        setStaffData(Object.values(usersMap))
 
-  useEffect(() => { fetchPayroll() }, [month])
+      } catch (error) {
+        console.error("Lỗi tính lương:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
 
-  const totalPayout = payrollData.reduce((acc, curr) => acc + curr.salary, 0)
+    fetchData()
+  }, [startDate, endDate])
+
+  // --- THỐNG KÊ ---
+  const stats = useMemo(() => {
+      const totalStaff = staffData.length
+      const totalHours = staffData.reduce((sum, s) => sum + s.totalHours, 0)
+      const totalCost = staffData.reduce((sum, s) => sum + (s.totalHours * s.hourlyRate), 0)
+      return { totalStaff, totalHours, totalCost }
+  }, [staffData])
+
+  const displayList = staffData.filter(s => 
+      s.name.toLowerCase().includes(filter.toLowerCase()) || 
+      s.email?.toLowerCase().includes(filter.toLowerCase())
+  )
 
   return (
-    <div className="space-y-6 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-end gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-        <div>
-           <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-emerald-600"/> Bảng tính lương</h1>
-           <p className="text-slate-500">Tổng hợp giờ làm và thu nhập nhân viên</p>
-        </div>
-        <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-slate-500">Tháng:</span>
-            <input 
-                type="month" 
-                value={month} 
-                onChange={e => setMonth(e.target.value)} 
-                className="p-2 border border-slate-300 rounded-lg font-bold text-slate-700"
-            />
-        </div>
+    <div className="space-y-6 animate-fadeIn pb-10 h-full flex flex-col">
+      
+      {/* --- HEADER --- */}
+      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
+         <div className="flex items-center gap-4 w-full md:w-auto">
+             <div className="p-3 bg-blue-100 text-blue-600 rounded-xl">
+                 <Wallet size={28} />
+             </div>
+             <div>
+                 <h1 className="text-xl font-bold text-slate-800">Bảng Lương </h1>
+                 <p className="text-sm text-slate-500 font-medium">Tổng chi dự kiến: <span className="text-blue-700 font-bold">{fmtMoney(stats.totalCost)}</span></p>
+             </div>
+         </div>
+
+         {/* Date Filter */}
+         <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-xl border border-slate-100 w-full md:w-auto">
+              <Calendar size={20} className="text-slate-400 ml-2"/>
+              <div className="flex flex-col">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Từ ngày</label>
+                  <input type="date" value={startDate} onChange={e=>setStartDate(e.target.value)} className="font-bold text-slate-700 bg-transparent outline-none cursor-pointer text-sm"/>
+              </div>
+              <ArrowRight size={16} className="text-slate-300"/>
+              <div className="flex flex-col">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase">Đến ngày</label>
+                  <input type="date" value={endDate} onChange={e=>setEndDate(e.target.value)} className="font-bold text-slate-700 bg-transparent outline-none cursor-pointer text-sm"/>
+              </div>
+         </div>
       </div>
 
-      {/* Summary Card */}
-      <div className="bg-emerald-600 text-white p-6 rounded-2xl shadow-lg flex justify-between items-center">
-          <div>
-              <p className="text-emerald-100 font-medium mb-1">Tổng quỹ lương ước tính ({month})</p>
-              <h2 className="text-4xl font-bold">{fmtVND(totalPayout)}</h2>
+      {/* --- DASHBOARD MINI --- */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 font-bold uppercase">Nhân sự</p>
+                  <h3 className="text-2xl font-bold text-slate-700">{stats.totalStaff}</h3>
+              </div>
+              <div className="p-3 bg-slate-100 text-slate-500 rounded-full"><Users size={24}/></div>
           </div>
-          <div className="p-4 bg-white/20 rounded-xl">
-              <DollarSign size={32} />
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 font-bold uppercase">Tổng giờ công</p>
+                  <h3 className="text-2xl font-bold text-emerald-700">{stats.totalHours.toFixed(1)} <span className="text-sm font-normal text-slate-400">giờ</span></h3>
+              </div>
+              <div className="p-3 bg-emerald-100 text-emerald-600 rounded-full"><Clock size={24}/></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
+              <div>
+                  <p className="text-xs text-slate-500 font-bold uppercase">Lương ước tính</p>
+                  <h3 className="text-2xl font-bold text-blue-700">{fmtMoney(stats.totalCost)}</h3>
+              </div>
+              <div className="p-3 bg-blue-100 text-blue-600 rounded-full"><DollarSign size={24}/></div>
           </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500 border-b border-slate-100">
-                    <tr>
-                        <th className="p-4 font-bold">Nhân viên</th>
-                        <th className="p-4 font-bold text-center">Số ca</th>
-                        <th className="p-4 font-bold text-center">Tổng giờ</th>
-                        <th className="p-4 font-bold text-right">Lương/Giờ</th>
-                        <th className="p-4 font-bold text-right text-emerald-600">Tổng Lương</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                    {loading ? (
-                        <tr><td colSpan="5" className="p-8 text-center text-slate-400">Đang tính toán...</td></tr>
-                    ) : payrollData.length === 0 ? (
-                        <tr><td colSpan="5" className="p-8 text-center text-slate-400">Không có dữ liệu chấm công tháng này.</td></tr>
-                    ) : (
-                        payrollData.map(item => (
-                            <tr key={item.uid} className="hover:bg-slate-50 transition">
-                                <td className="p-4">
-                                    <div className="font-bold text-slate-700">{item.name}</div>
-                                    <div className="text-xs text-slate-400 uppercase">{item.role}</div>
-                                </td>
-                                <td className="p-4 text-center font-medium">{item.shifts}</td>
-                                <td className="p-4 text-center font-bold text-slate-700">{item.hours.toFixed(1)}h</td>
-                                <td className="p-4 text-right text-slate-500">{fmtVND(item.rate)}</td>
-                                <td className="p-4 text-right font-bold text-emerald-600 text-lg">{fmtVND(item.salary)}</td>
-                            </tr>
-                        ))
-                    )}
-                </tbody>
-            </table>
-        </div>
+      {/* --- TABLE --- */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-slate-100 flex gap-3 bg-slate-50/50 items-center">
+              <Search className="text-slate-400 shrink-0"/>
+              <input 
+                placeholder="Tìm nhân viên..." 
+                value={filter} 
+                onChange={e=>setFilter(e.target.value)} 
+                className="outline-none flex-1 bg-transparent font-medium text-base h-10"
+              />
+          </div>
+
+          <div className="flex-1 overflow-auto custom-scrollbar">
+              <table className="w-full text-left text-sm min-w-[800px]">
+                  <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-bold sticky top-0 z-10 shadow-sm">
+                      <tr>
+                          <th className="p-4">Nhân viên</th>
+                          <th className="p-4">Vai trò</th>
+                          <th className="p-4 text-center">Số ca làm</th>
+                          <th className="p-4 text-center">Tổng giờ</th>
+                          <th className="p-4 text-right">Lương/Giờ</th>
+                          <th className="p-4 text-right">Thành tiền</th>
+                      </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                      {loading ? (
+                          <tr><td colSpan="6" className="p-10 text-center text-slate-400">Đang tính toán dữ liệu...</td></tr>
+                      ) : displayList.length === 0 ? (
+                          <tr><td colSpan="6" className="p-10 text-center text-slate-400">Không tìm thấy nhân viên nào.</td></tr>
+                      ) : (
+                          displayList.map(s => {
+                              const salary = s.totalHours * s.hourlyRate
+                              return (
+                                  <tr key={s.id} className="hover:bg-slate-50 transition">
+                                      <td className="p-4">
+                                          <div className="font-bold text-slate-800 text-base">{s.name}</div>
+                                          <div className="text-xs text-slate-400">{s.email}</div>
+                                      </td>
+                                      <td className="p-4">
+                                          <span className={`px-2 py-1 rounded text-xs font-bold ${
+                                              s.role === 'MANAGER' ? 'bg-purple-100 text-purple-700' :
+                                              s.role === 'KITCHEN' ? 'bg-orange-100 text-orange-700' :
+                                              'bg-blue-100 text-blue-700'
+                                          }`}>
+                                              {s.role}
+                                          </span>
+                                      </td>
+                                      <td className="p-4 text-center font-medium text-slate-600">
+                                          {s.shifts} ca
+                                      </td>
+                                      <td className="p-4 text-center">
+                                          <span className="font-bold text-emerald-700 text-lg">{s.totalHours.toFixed(1)}</span>
+                                      </td>
+                                      <td className="p-4 text-right font-mono text-slate-500">
+                                          {fmtMoney(s.hourlyRate)}
+                                      </td>
+                                      <td className="p-4 text-right">
+                                          <span className="font-bold text-blue-700 text-lg">{fmtMoney(salary)}</span>
+                                      </td>
+                                  </tr>
+                              )
+                          })
+                      )}
+                  </tbody>
+              </table>
+          </div>
       </div>
     </div>
   )
