@@ -69,6 +69,7 @@ export default function App() {
         
         setUser(userData)
         
+        // Điều hướng mặc định theo Role
         if (userData.role === 'KITCHEN') setRoute('kitchen')
         else setRoute('dashboard') 
 
@@ -99,21 +100,28 @@ export default function App() {
     </motion.div>
   )
 
+  // useMemo để tối ưu render
   const MainContent = useMemo(() => {
     if (!user) return <Login />
 
     return (
         <Shell user={user} route={route} setRoute={setRoute} onLogout={() => signOut(auth)}>
           <AnimatePresence mode="wait">
+            
+            {/* Dashboard: Chỉ Manager hoặc Staff thường (nếu muốn) */}
             {route === 'dashboard' && <PageTransition k="dash"><Dashboard /></PageTransition>}
+            
+            {/* Chấm công: Ai cũng vào được */}
             {route === 'attendance' && <PageTransition k="attendance"><Attendance user={user} showToast={showToast} /></PageTransition>}
             
+            {/* Gọi món: Staff & Manager */}
             {route === 'order' && (
               <PageTransition k="order">
                 <OrderTables user={user} setRoute={setRoute} setActiveTable={setActiveTable} setActiveOrderId={setActiveOrderId} />
               </PageTransition>
             )}
 
+            {/* Thực đơn: Staff & Manager */}
             {route === 'menu' && (
               <PageTransition k="menu">
                 <Menu 
@@ -128,18 +136,21 @@ export default function App() {
               </PageTransition>
             )}
 
+            {/* Bếp: Manager & Kitchen */}
             {route === 'kitchen' && ['MANAGER', 'KITCHEN'].includes(user.role) && (
               <PageTransition k="kitchen">
                   <Kitchen user={user} showToast={showToast} />
               </PageTransition>
             )}
 
-            {route === 'inventory' && ['MANAGER', 'KITCHEN'].includes(user.role) && (
+            {/* [SỬA ĐỔI] Kho hàng: CHỈ MANAGER */}
+            {route === 'inventory' && user.role === 'MANAGER' && (
               <PageTransition k="inv">
                   <Inventory user={user} showToast={showToast} />
               </PageTransition>
             )}
 
+            {/* Các trang quản lý khác: CHỈ MANAGER */}
             {route === 'staff' && user.role === 'MANAGER' && (
               <PageTransition k="staff"><Staff user={user} /></PageTransition>
             )}
@@ -149,10 +160,8 @@ export default function App() {
             )}
 
             {route === 'coupons' && user.role === 'MANAGER' && (
-               <PageTransition k="coupons">
-               <CouponManager showToast={showToast} /> {/* <--- Thêm prop này */}
-              </PageTransition>
-      )}
+              <PageTransition k="coupons"><CouponManager showToast={showToast} /></PageTransition>
+            )}
             
             {route === 'reports' && user.role === 'MANAGER' && (
               <PageTransition k="reports"><Reports /></PageTransition>
@@ -177,7 +186,7 @@ export default function App() {
 
   return (
     <>
-      {/* LAYER THÔNG BÁO - ĐÃ DỊCH XUỐNG DƯỚI */}
+      {/* LAYER THÔNG BÁO (Toast Notification) */}
       <AnimatePresence>
         {toast.show && (
           <motion.div 
@@ -190,7 +199,7 @@ export default function App() {
             transition={{ duration: 0.3, ease: "easeOut" }}
             
             className={`
-              fixed top-24 right-6 z-[99999] /* [SỬA] top-6 -> top-24 (Đẩy xuống khoảng 96px) */
+              fixed top-24 right-6 z-[99999] 
               flex items-start 
               gap-4 
               p-5 

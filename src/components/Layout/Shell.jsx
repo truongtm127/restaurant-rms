@@ -33,7 +33,7 @@ export default function Shell({ user, route, setRoute, onLogout, children }) {
     { id: 'order',     label: 'Sơ đồ bàn',    icon: Layers,          roles: ['MANAGER', 'STAFF'],           group: 'Vận hành' },
     { id: 'menu',      label: 'Thực đơn',     icon: MenuIcon,        roles: ['MANAGER', 'STAFF'],           group: 'Vận hành' },
     { id: 'kitchen',   label: 'Bếp & Bar',    icon: ChefHat,         roles: ['MANAGER', 'KITCHEN'],         group: 'Vận hành' },
-    { id: 'inventory', label: 'Kho hàng',     icon: Package,         roles: ['MANAGER', 'KITCHEN'],         group: 'Vận hành' },
+    { id: 'inventory', label: 'Kho hàng',     icon: Package,         roles: ['MANAGER'],                    group: 'Vận hành' },
     
     // Nhóm QUẢN TRỊ (Management)
     { id: 'staff',     label: 'Nhân sự',      icon: Users,           roles: ['MANAGER'],                    group: 'Quản trị' },
