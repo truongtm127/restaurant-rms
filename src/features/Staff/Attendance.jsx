@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react'
 import { collection, query, where, addDoc, updateDoc, doc, serverTimestamp, onSnapshot, getDocs, writeBatch } from 'firebase/firestore'
 import { Clock, LogIn, LogOut, UserCheck, History, AlertTriangle } from 'lucide-react'
 import { db } from '../../firebase'
-import ConfirmModal from '../../components/UI/ConfirmModal' // [MỚI] Import ConfirmModal
+import ConfirmModal from '../../components/UI/ConfirmModal'
 
-// ... (Giữ nguyên các hàm helper formatTime, formatDate, calculateDuration)
+// --- HELPERS ---
+
 const formatTime = (timestamp) => {
   if (!timestamp) return '--:--'
   const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp)
@@ -25,91 +26,85 @@ const calculateDuration = (start, end) => {
   return diff.toFixed(1) + ' giờ'
 }
 
-// [MỚI] Nhận prop showToast
+// --- COMPONENT ---
+
 export default function Attendance({ user, showToast }) {
   const [currentSession, setCurrentSession] = useState(null)
   const [history, setHistory] = useState([])
   const [todayStaff, setTodayStaff] = useState([])
   const [loading, setLoading] = useState(true)
   const [autoFixed, setAutoFixed] = useState(false)
-
-  // State cho Modal xác nhận checkout
   const [confirmConfig, setConfirmConfig] = useState({ isOpen: false, title: '', message: '', action: null })
-  const openConfirm = (title, message, action) => setConfirmConfig({ isOpen: true, title, message, action })
 
-  // Hàm xử lý ca "treo" (Quên checkout hôm qua)
-  const checkAndFixStaleSessions = async () => {
-    const todayStr = new Date().toISOString().slice(0, 10)
-    
-    const q = query(
-        collection(db, 'attendance'),
-        where('userId', '==', user.uid),
-        where('status', '==', 'WORKING')
-    )
-    
-    const snap = await getDocs(q)
-    const batch = writeBatch(db)
-    let fixedCount = 0
-
-    snap.docs.forEach(d => {
-        const data = d.data()
-        if (data.date !== todayStr) {
-            fixedCount++
-            const defaultCheckout = new Date(data.date)
-            defaultCheckout.setHours(23, 59, 59)
-
-            batch.update(d.ref, {
-                status: 'COMPLETED',
-                checkOut: defaultCheckout,
-                note: 'Hệ thống tự động chốt do quên Check-out'
-            })
-        }
-    })
-
-    if (fixedCount > 0) {
-        await batch.commit()
-        setAutoFixed(true)
-    }
-  }
-
+  // 1. Logic tự động chốt ca cũ quên checkout
   useEffect(() => {
-    checkAndFixStaleSessions()
+    const fixStaleSessions = async () => {
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const q = query(
+            collection(db, 'attendance'),
+            where('userId', '==', user.uid),
+            where('status', '==', 'WORKING')
+        )
+        
+        try {
+            const snap = await getDocs(q)
+            const batch = writeBatch(db)
+            let fixedCount = 0
 
-    // 1. Lắng nghe session hiện tại
+            snap.docs.forEach(d => {
+                const data = d.data()
+                if (data.date !== todayStr) {
+                    fixedCount++
+                    const defaultCheckout = new Date(data.date)
+                    defaultCheckout.setHours(23, 59, 59)
+
+                    batch.update(d.ref, {
+                        status: 'COMPLETED',
+                        checkOut: defaultCheckout,
+                        note: 'Hệ thống tự động chốt do quên Check-out'
+                    })
+                }
+            })
+
+            if (fixedCount > 0) {
+                await batch.commit()
+                setAutoFixed(true)
+            }
+        } catch (e) {
+            console.error("Fix Stale Session Error:", e)
+        }
+    }
+    fixStaleSessions()
+  }, [user.uid])
+
+  // 2. Lắng nghe dữ liệu realtime
+  useEffect(() => {
     const todayStr = new Date().toISOString().slice(0, 10)
+    
+    // Current Session Listener
     const qCurrent = query(
       collection(db, 'attendance'),
       where('userId', '==', user.uid),
       where('status', '==', 'WORKING'),
       where('date', '==', todayStr) 
     )
-
     const unsubCurrent = onSnapshot(qCurrent, (snap) => {
-      if (!snap.empty) {
-        setCurrentSession({ id: snap.docs[0].id, ...snap.docs[0].data() })
-      } else {
-        setCurrentSession(null)
-      }
+      setCurrentSession(snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() })
       setLoading(false)
     })
 
-    // 2. Lịch sử chấm công
+    // History Listener
     const qHistory = query(
       collection(db, 'attendance'),
       where('userId', '==', user.uid)
     )
-
     const unsubHistory = onSnapshot(qHistory, (snap) => {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => {
-          const timeA = a.checkIn?.seconds || 0
-          const timeB = b.checkIn?.seconds || 0
-          return timeB - timeA
-      })
+      list.sort((a, b) => (b.checkIn?.seconds || 0) - (a.checkIn?.seconds || 0))
       setHistory(list.slice(0, 20))
     })
 
-    // 3. Manager view
+    // Manager View Listener
     let unsubStaff = () => {}
     if (user.role === 'MANAGER') {
         const qStaff = query(
@@ -125,10 +120,12 @@ export default function Attendance({ user, showToast }) {
     return () => { unsubCurrent(); unsubHistory(); unsubStaff() }
   }, [user])
 
+  // --- HANDLERS ---
+
   const handleCheckIn = async () => {
     if (autoFixed) setAutoFixed(false)
+    setLoading(true)
     try {
-      setLoading(true)
       await addDoc(collection(db, 'attendance'), {
         userId: user.uid,
         userName: user.name || user.email,
@@ -141,19 +138,21 @@ export default function Attendance({ user, showToast }) {
     } catch (error) {
       console.error(error)
       showToast("Lỗi khi Check-in", "error")
-    } finally { setLoading(false) }
+    } finally { 
+      setLoading(false) 
+    }
   }
 
-  const handleCheckOut = async () => {
+  const handleCheckOut = () => {
     if (!currentSession) return
     
-    // [MỚI] Dùng ConfirmModal thay window.confirm
-    openConfirm(
-        "Kết thúc ca",
-        "Bạn có chắc chắn muốn Check-out kết thúc ca làm việc?",
-        async () => {
+    setConfirmConfig({
+        isOpen: true,
+        title: "Kết thúc ca",
+        message: "Bạn có chắc chắn muốn Check-out kết thúc ca làm việc?",
+        action: async () => {
+            setLoading(true)
             try {
-                setLoading(true)
                 await updateDoc(doc(db, 'attendance', currentSession.id), {
                     checkOut: serverTimestamp(),
                     status: 'COMPLETED'
@@ -162,30 +161,37 @@ export default function Attendance({ user, showToast }) {
             } catch (error) {
                 console.error(error)
                 showToast("Lỗi khi Check-out", "error")
-            } finally { setLoading(false) }
+            } finally { 
+                setLoading(false) 
+            }
         }
-    )
+    })
   }
 
   return (
     <div className="space-y-6 animate-fadeIn pb-10">
       
-      {/* [MỚI] Confirm Modal */}
-      <ConfirmModal isOpen={confirmConfig.isOpen} onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} onConfirm={confirmConfig.action} title={confirmConfig.title} message={confirmConfig.message} />
+      <ConfirmModal 
+        isOpen={confirmConfig.isOpen} 
+        onClose={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))} 
+        onConfirm={confirmConfig.action} 
+        title={confirmConfig.title} 
+        message={confirmConfig.message} 
+      />
 
-      {/* Header */}
+      {/* Header Info */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div>
            <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Clock className="text-emerald-600"/> Chấm công</h1>
            <p className="text-slate-500">Xin chào, <b>{user.name}</b>! Chúc bạn một ngày làm việc hiệu quả.</p>
         </div>
         <div className="text-right hidden md:block">
-            <div className="text-3xl font-bold text-slate-700">{new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
-            <div className="text-slate-500 text-sm">{new Date().toLocaleDateString('vi-VN', {weekday: 'long', day:'2-digit', month:'2-digit', year:'numeric'})}</div>
+           <div className="text-3xl font-bold text-slate-700">{new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
+           <div className="text-slate-500 text-sm">{new Date().toLocaleDateString('vi-VN', {weekday: 'long', day:'2-digit', month:'2-digit', year:'numeric'})}</div>
         </div>
       </div>
 
-      {/* Thông báo tự sửa lỗi */}
+      {/* Alert Auto Fix */}
       {autoFixed && (
         <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-start gap-3 animate-pulse">
             <AlertTriangle className="text-amber-600 shrink-0" />
@@ -201,7 +207,7 @@ export default function Attendance({ user, showToast }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* PANEL TRÁI */}
+        {/* LEFT PANEL: ACTION */}
         <div className="lg:col-span-1 space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center justify-center text-center h-64">
                 {loading ? <div className="text-slate-400">Đang xử lý...</div> : (
@@ -241,7 +247,9 @@ export default function Attendance({ user, showToast }) {
 
             {user.role === 'MANAGER' && (
                 <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-                    <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><UserCheck size={18}/> Nhân sự đang trực ({todayStaff.length})</h3>
+                    <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                        <UserCheck size={18}/> Nhân sự đang trực ({todayStaff.length})
+                    </h3>
                     <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar">
                         {todayStaff.length === 0 && <p className="text-sm text-slate-400 italic">Chưa có ai check-in.</p>}
                         {todayStaff.map(s => (
@@ -255,7 +263,7 @@ export default function Attendance({ user, showToast }) {
             )}
         </div>
 
-        {/* PANEL PHẢI: LỊCH SỬ */}
+        {/* RIGHT PANEL: HISTORY */}
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
             <div className="p-5 border-b border-slate-100 bg-slate-50">
                 <h3 className="font-bold text-slate-700 flex items-center gap-2"><History size={18}/> Lịch sử chấm công của bạn</h3>

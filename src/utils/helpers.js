@@ -1,23 +1,14 @@
-// src/utils/helpers.js
 
-/* ----------------------------- Formatting ------------------------------ */
-
-// [CẬP NHẬT] Định dạng tiền tệ an toàn (Tránh lỗi NaN hoặc undefined)
 export const fmtVND = (amount) => {
-  // Kiểm tra nếu giá trị không hợp lệ
   if (amount === undefined || amount === null || isNaN(amount)) {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(0);
   }
-  
-  // Ép kiểu về số và định dạng
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(amount));
 };
 
-// Nhãn hiển thị thứ trong tuần (0=CN, 1=T2, ...)
 export const dayLabel = (i) => ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][i];
 
-// [FIX] Format ngày cho thẻ input type="date" (YYYY-MM-DD) theo giờ địa phương
-// Sửa lỗi chọn ngày 29 bị nhảy về 28
+// Format ngày cho thẻ input type="date" (YYYY-MM-DD) theo giờ địa phương
 export const formatDateInput = (date) => {
   if (!date) return '';
   const d = new Date(date);
@@ -27,7 +18,6 @@ export const formatDateInput = (date) => {
   return `${year}-${month}-${day}`;
 };
 
-// Lấy tên viết tắt (Ví dụ: Nguyen Van A -> NA) - Thường dùng cho Avatar
 export const getShortName = (name) => {
   if (!name) return 'U';
   const parts = name.trim().split(' ');
@@ -35,30 +25,25 @@ export const getShortName = (name) => {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
-/* ----------------------------- Date Helpers ---------------------------- */
 
-// Cộng trừ ngày
 export const addDays = (d, n) => {
   const x = new Date(d);
   x.setDate(x.getDate() + n);
   return x;
 };
 
-// Bắt đầu ngày (00:00:00)
 export const startOfDay = (d = new Date()) => {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
   return x;
 };
 
-// Kết thúc ngày (23:59:59)
 export const endOfDay = (d = new Date()) => {
   const x = new Date(d);
   x.setHours(23, 59, 59, 999);
   return x;
 };
 
-// Bắt đầu tuần (Thứ 2)
 export const startOfWeek = (d = new Date()) => {
   const x = new Date(d);
   const dw = (x.getDay() + 6) % 7;
@@ -67,7 +52,6 @@ export const startOfWeek = (d = new Date()) => {
   return x;
 };
 
-// Kết thúc tuần (Chủ nhật)
 export const endOfWeek = (d = new Date()) => {
   const x = startOfWeek(d);
   x.setDate(x.getDate() + 6);
@@ -75,32 +59,24 @@ export const endOfWeek = (d = new Date()) => {
   return x;
 };
 
-// Bắt đầu tháng
 export const startOfMonth = (d = new Date()) =>
   new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
 
-// Kết thúc tháng
 export const endOfMonth = (d = new Date()) =>
   new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
 
-// Bắt đầu quý
 export const startOfQuarter = (d = new Date()) =>
   new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1, 0, 0, 0, 0);
 
-// Kết thúc quý
 export const endOfQuarter = (d = new Date()) =>
   new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3 + 3, 0, 23, 59, 59, 999);
 
-// Bắt đầu năm
 export const startOfYear = (d = new Date()) =>
   new Date(d.getFullYear(), 0, 1, 0, 0, 0, 0);
 
-// Kết thúc năm
 export const endOfYear = (d = new Date()) =>
   new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999);
 
-
-/* ----------------------------- Error Handling -------------------------- */
 
 export const getAuthErrorMessage = (code) => {
   switch (code) {
@@ -114,8 +90,6 @@ export const getAuthErrorMessage = (code) => {
   }
 };
 
-/* ----------------------------- Image Helpers -------------------------- */
-
 export const compressImage = (file) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
@@ -127,15 +101,19 @@ export const compressImage = (file) => {
         const MAX_WIDTH = 800;
         let width = img.width;
         let height = img.height;
+        
         if (width > MAX_WIDTH) {
           height *= MAX_WIDTH / width;
           width = MAX_WIDTH;
         }
+        
         const canvas = document.createElement('canvas');
         canvas.width = width;
         canvas.height = height;
+        
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0, width, height);
+        
         canvas.toBlob((blob) => {
           const newFile = new File([blob], file.name, {
             type: 'image/jpeg',

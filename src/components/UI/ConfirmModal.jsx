@@ -3,12 +3,16 @@ import React from 'react'
 export default function ConfirmModal({ isOpen, onClose, onConfirm, title, message }) {
   if (!isOpen) return null
 
+  const handleConfirm = () => {
+    onConfirm()
+    onClose()
+  }
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fadeIn">
       <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-5 scale-100 transition-all">
         <h3 className="text-lg font-bold text-slate-800 mb-2">{title}</h3>
         
-        {/* [SỬA LỖI] Thay thẻ <p> thành <div> để có thể chứa nội dung HTML/Div con */}
         <div className="text-sm text-slate-600 mb-6 leading-relaxed">
           {message}
         </div>
@@ -21,7 +25,7 @@ export default function ConfirmModal({ isOpen, onClose, onConfirm, title, messag
             Hủy
           </button>
           <button 
-            onClick={() => { onConfirm(); onClose() }}
+            onClick={handleConfirm}
             className="px-4 py-2 rounded-lg bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-md transition"
           >
             Đồng ý

@@ -1,45 +1,46 @@
 import React, { useState, useEffect } from 'react'
 import { X, Lock, DollarSign } from 'lucide-react'
 
+const INITIAL_STATE = {
+  name: '', 
+  email: '', 
+  password: '', 
+  role: 'STAFF',
+  hourlyRate: 20000 
+}
+
+const INPUT_CLASSES = "w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+
 export default function StaffModal({ initialData, onClose, onSave }) {
-  const [formData, setFormData] = useState({
-    name: '', 
-    email: '', 
-    password: '', 
-    role: 'STAFF',
-    hourlyRate: 20000 
-  })
+  const [formData, setFormData] = useState(INITIAL_STATE)
 
   useEffect(() => {
     if (initialData) {
-      // Chế độ Sửa
       setFormData({
         name: initialData.name || '',
         email: initialData.email || '',
-        password: '', // Để trống khi sửa
+        password: '', // Password luôn trống khi edit
         role: initialData.role || 'STAFF',
         hourlyRate: initialData.hourlyRate || 20000 
       })
     } else {
-      // Chế độ Thêm mới
-      setFormData({
-        name: '', 
-        email: '', 
-        password: '', // [QUAN TRỌNG] Phải khởi tạo là chuỗi rỗng
-        role: 'STAFF', 
-        hourlyRate: 20000
-      })
+      setFormData(INITIAL_STATE)
     }
   }, [initialData])
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    // Validation cơ bản
+  const validateForm = () => {
     if (!initialData && !formData.password) {
         alert("Vui lòng nhập mật khẩu khi tạo mới!")
-        return
+        return false
     }
-    onSave(formData)
+    return true
+  }
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (validateForm()) {
+        onSave(formData)
+    }
   }
 
   const handleChange = (e) => {
@@ -48,15 +49,17 @@ export default function StaffModal({ initialData, onClose, onSave }) {
     setFormData(prev => ({ ...prev, [name]: finalValue }))
   }
 
-  // Kiểm tra quyền sửa
   const isEditingManager = initialData?.role === 'MANAGER'
 
   return (
-    // Z-Index cao để không bị che
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
       
+      {/* Modal Content */}
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden relative z-10" onClick={(e) => e.stopPropagation()}>
+        
+        {/* Header */}
         <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
           <h3 className="text-lg font-bold text-slate-800">
             {initialData ? 'Cập nhật nhân viên' : 'Thêm nhân viên mới'}
@@ -66,13 +69,14 @@ export default function StaffModal({ initialData, onClose, onSave }) {
           </button>
         </div>
 
+        {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div className="space-y-1">
             <label className="text-sm font-medium text-slate-700">Họ và tên</label>
             <input 
               name="name" required 
               value={formData.name} onChange={handleChange} 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" 
+              className={INPUT_CLASSES} 
               placeholder="Nguyễn Văn A" 
             />
           </div>
@@ -83,7 +87,7 @@ export default function StaffModal({ initialData, onClose, onSave }) {
               type="email" name="email" required 
               value={formData.email} onChange={handleChange} 
               disabled={!!initialData} 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none disabled:bg-slate-100 disabled:text-slate-500" 
+              className={`${INPUT_CLASSES} disabled:bg-slate-100 disabled:text-slate-500`} 
               placeholder="user@rms.vn" 
             />
           </div>
@@ -92,14 +96,13 @@ export default function StaffModal({ initialData, onClose, onSave }) {
             <label className="text-sm font-medium text-slate-700">
               {initialData ? 'Mật khẩu mới (Bỏ trống nếu không đổi)' : 'Mật khẩu'}
             </label>
-            {/* [QUAN TRỌNG] name="password" phải khớp với state */}
             <input 
               type="text" 
               name="password" 
-              required={!initialData} // Bắt buộc nhập nếu là thêm mới
+              required={!initialData} 
               value={formData.password} 
               onChange={handleChange} 
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none font-mono" 
+              className={`${INPUT_CLASSES} font-mono`} 
               placeholder={initialData ? "******" : "Nhập mật khẩu..."} 
             />
           </div>
@@ -114,8 +117,7 @@ export default function StaffModal({ initialData, onClose, onSave }) {
                 value={formData.role} 
                 onChange={handleChange} 
                 disabled={isEditingManager}
-                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none bg-white 
-                  ${isEditingManager ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                className={`${INPUT_CLASSES} bg-white ${isEditingManager ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
               >
                 {isEditingManager ? (
                   <option value="MANAGER">Quản lý (Cố định)</option>

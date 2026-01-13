@@ -10,8 +10,7 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // Class chung cho các ô input để tránh lặp code
-  const inputClass = "w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
+  const inputClasses = "w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors"
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -30,7 +29,6 @@ export default function Login() {
   return (
     <div className="min-h-screen grid place-items-center bg-gradient-to-br from-emerald-50 to-emerald-100 p-4">
       <form onSubmit={handleSubmit} className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8 space-y-6 animate-fadeIn">
-        {/* Header */}
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-xl bg-emerald-600 text-white shadow-sm">
             <UtensilsCrossed size={24} />
@@ -41,14 +39,13 @@ export default function Login() {
           </div>
         </div>
 
-        {/* Inputs */}
         <div className="space-y-4">
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email"
-            className={inputClass}
+            className={inputClasses}
             disabled={loading}
             required
           />
@@ -57,19 +54,17 @@ export default function Login() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Mật khẩu"
-            className={inputClass}
+            className={inputClasses}
             disabled={loading}
             required
           />
 
-          {/* Error Message */}
           {error && (
             <div role="alert" className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 font-medium">
               {error}
             </div>
           )}
 
-          {/* Submit Button */}
           <button
             type="submit"
             disabled={loading}

@@ -1,4 +1,3 @@
-// src/features/Reports/Reports.jsx
 import React from 'react'
 import { BarChart3 } from 'lucide-react'
 import RevenueReport from './RevenueReport'
@@ -6,7 +5,7 @@ import RevenueReport from './RevenueReport'
 export default function Reports() {
   return (
     <div className="space-y-6 animate-fadeIn">
-      {/* Header */}
+      {/* Header Section */}
       <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -18,7 +17,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Nội dung báo cáo chính */}
+      {/* Main Report Content */}
       <div className="min-h-[600px]">
         <RevenueReport />
       </div>
