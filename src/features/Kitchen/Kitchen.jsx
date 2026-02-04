@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState } from 'react'
 import { 
   collection, onSnapshot, query, where, updateDoc, doc, 
-  getDoc, writeBatch, increment, addDoc, serverTimestamp 
+  writeBatch, serverTimestamp 
 } from 'firebase/firestore'
 import { db } from '../../firebase'
 import { 
@@ -20,7 +20,7 @@ const getTimeElapsed = (timestamp) => {
 }
 
 const sortOrders = (a, b) => {
-  // 1. Ưu tiên đơn có vấn đề (Issue)
+  // 1. Ưu tiên đơn có vấn đề (Issue) - Vẫn giữ để hiển thị đơn cũ nếu có
   if (a.status === 'issue' && b.status !== 'issue') return -1
   if (a.status !== 'issue' && b.status === 'issue') return 1
 
@@ -35,6 +35,7 @@ const sortOrders = (a, b) => {
 }
 
 // --- SUB-COMPONENT: THẺ ĐƠN HÀNG ---
+// (Giữ nguyên logic hiển thị UI)
 const KitchenOrderCard = ({ order, user, onAccept, onFinish }) => {
   const items = order.items || []
   
@@ -51,7 +52,6 @@ const KitchenOrderCard = ({ order, user, onAccept, onFinish }) => {
   const hasCooking = cookingItems.length > 0
   const isIssue = order.status === 'issue'
   
-  // Không hiển thị nếu không còn việc gì để làm (trừ khi đang bị lỗi issue)
   if (!hasNew && !hasCooking && !isIssue) return null
 
   const isMyOrder = order.chefId === user.uid
@@ -59,7 +59,6 @@ const KitchenOrderCard = ({ order, user, onAccept, onFinish }) => {
   const isFirstOrder = hasNew && !isAddOn
   const tableName = order.tableName || order.tableId || '???'
 
-  // Xác định style thẻ
   let cardStyle = 'border-slate-200 bg-slate-50 opacity-75' 
   if (isIssue) cardStyle = 'border-amber-400 ring-4 ring-amber-100 bg-amber-50'
   else if (isMyOrder && hasCooking) cardStyle = 'border-blue-500 ring-2 ring-blue-50'
@@ -179,93 +178,13 @@ export default function Kitchen({ user, showToast }) {
     return () => unsub()
   }, [])
 
-  // 1. Logic kiểm tra kho khi nhận đơn
-  const checkInventoryForOrder = async (order, newItemsToCook, tableName) => {
-      // Fetch recipes
-      const itemPromises = newItemsToCook.map(async (item) => {
-          const menuSnap = await getDoc(doc(db, 'menu_items', item.menuItemId))
-          return { 
-              ...item, 
-              qtyNeeded: (item.qty || 0) - (item.qtyAccepted || 0), 
-              recipe: menuSnap.exists() ? (menuSnap.data().recipe || []) : [] 
-          }
-      })
-      const itemsWithRecipe = await Promise.all(itemPromises)
-
-      // Calculate total ingredients needed
-      const ingredientsNeedCheck = {}
-      const dishUsageMap = {}
-
-      itemsWithRecipe.forEach(item => {
-          item.recipe?.forEach(ing => {
-              if (ing.ingredientId) {
-                  const amount = (Number(ing.quantity) || 0) * item.qtyNeeded
-                  ingredientsNeedCheck[ing.ingredientId] = (ingredientsNeedCheck[ing.ingredientId] || 0) + amount
-                  
-                  if (!dishUsageMap[ing.ingredientId]) dishUsageMap[ing.ingredientId] = new Set()
-                  dishUsageMap[ing.ingredientId].add(item.name)
-              }
-          })
-      })
-
-      // Check against inventory
-      const missingDetails = []
-      for (const [ingId, amountNeeded] of Object.entries(ingredientsNeedCheck)) {
-          const invSnap = await getDoc(doc(db, 'inventory', ingId))
-          if (invSnap.exists()) {
-              const invData = invSnap.data()
-              const currentStock = Number(invData.quantity) || 0
-              
-              if (currentStock < amountNeeded) {
-                  const missingQty = amountNeeded - currentStock
-                  const affectedDishes = Array.from(dishUsageMap[ingId] || []).join(', ')
-                  missingDetails.push(
-                      `🔴 ${invData.name}: Thiếu ${missingQty.toLocaleString('vi-VN')} ${invData.unit}\n` +
-                      `   (Kho: ${currentStock} | Cần: ${amountNeeded})\n` +
-                      `   👉 Món: ${affectedDishes}`
-                  )
-              }
-          } else {
-             missingDetails.push(`🔴 Lỗi dữ liệu: Không tìm thấy NL ID ${ingId}`)
-          }
-      }
-
-      return missingDetails
-  }
-
-  // 2. Handler: Nhận nấu
+  // 1. Handler: Nhận nấu (Đã bỏ check kho)
   const handleAcceptCooking = async (order) => {
-    const tableName = order.tableName || order.tableId || '???'
+    // Chỉ cần kiểm tra xem có món nào mới không
     const newItemsToCook = (order.items || []).filter(item => (item.qty || 0) > (item.qtyAccepted || 0))
-
     if (newItemsToCook.length === 0) return
 
     try {
-        const missingDetails = await checkInventoryForOrder(order, newItemsToCook, tableName)
-
-        // Case: Thiếu nguyên liệu
-        if (missingDetails.length > 0) {
-            const warningMsg = `Bàn ${tableName} không đủ nguyên liệu:\n\n${missingDetails.join('\n\n')}\n\n👉 Vui lòng hỏi khách đổi món.`
-            
-            await addDoc(collection(db, 'notifications'), {
-                type: 'kitchen_issue',
-                title: `🚨 THIẾU NGUYÊN LIỆU (BÀN ${tableName})`,
-                message: warningMsg,
-                isRead: false,
-                createdAt: serverTimestamp(),
-                createdBy: user.name || 'Kitchen'
-            })
-
-            await updateDoc(doc(db, 'orders', order.id), {
-                status: 'issue',
-                kitchenNote: warningMsg 
-            })
-
-            showToast("⛔ Đã báo thiếu nguyên liệu! Đơn hàng chuyển sang 'Chờ xử lý'.", 'warning')
-            return
-        }
-
-        // Case: Đủ nguyên liệu -> Nhận đơn
         const acceptedItems = (order.items || []).map(item => ({ ...item, qtyAccepted: item.qty }))
         
         // Optimistic UI update
@@ -287,68 +206,10 @@ export default function Kitchen({ user, showToast }) {
     }
   }
 
-  // 3. Logic trừ kho và hoàn thành đơn
+  // 2. Logic hoàn thành đơn (Đã bỏ trừ kho)
   const processOrderCompletion = async (order, tableName, waiterName) => {
       const batch = writeBatch(db)
       const updatedItems = (order.items || []).map(item => ({ ...item, qtyCompleted: item.qty, qtyAccepted: item.qty }))
-
-      // Prepare recipes and inventory data
-      const itemPromises = order.items.map(async (item) => {
-          const menuSnap = await getDoc(doc(db, 'menu_items', item.menuItemId))
-          return { ...item, recipe: menuSnap.exists() ? (menuSnap.data().recipe || []) : [] }
-      })
-      const itemsWithRecipe = await Promise.all(itemPromises)
-
-      const allIngredientIds = new Set()
-      itemsWithRecipe.forEach(item => item.recipe?.forEach(ing => ing.ingredientId && allIngredientIds.add(ing.ingredientId)))
-
-      const inventoryDocs = {}
-      if (allIngredientIds.size > 0) {
-          await Promise.all(Array.from(allIngredientIds).map(async (id) => {
-              const snap = await getDoc(doc(db, 'inventory', id))
-              if (snap.exists()) inventoryDocs[id] = snap.data()
-          }))
-      }
-
-      // Calculate deductions and Alerts
-      const alerts = []
-      const usageMap = {}
-
-      itemsWithRecipe.forEach(item => {
-          const qtyDish = Number(item.qty || 0)
-          item.recipe?.forEach(ing => {
-              if (ing.ingredientId && inventoryDocs[ing.ingredientId]) {
-                  const totalDeduct = (Number(ing.quantity) || 0) * qtyDish
-                  usageMap[ing.ingredientId] = (usageMap[ing.ingredientId] || 0) + totalDeduct
-              }
-          })
-      })
-
-      // Add inventory updates to batch
-      for (const [ingId, deductAmount] of Object.entries(usageMap)) {
-          if (deductAmount > 0) {
-              const invRef = doc(db, 'inventory', ingId)
-              batch.update(invRef, { quantity: increment(-deductAmount) })
-
-              const invData = inventoryDocs[ingId]
-              const stockAfter = (Number(invData.quantity) || 0) - deductAmount
-              if (stockAfter <= (Number(invData.minThreshold) || 0)) {
-                  alerts.push(`${invData.name} (Còn: ${stockAfter} ${invData.unit})`)
-              }
-          }
-      }
-
-      // Notify Low Stock
-      if (alerts.length > 0) {
-          batch.set(doc(collection(db, 'notifications')), {
-              type: 'low_stock',
-              title: '⚠️ CẢNH BÁO KHO (SAU KHI NẤU)',
-              message: `Sau khi nấu xong cho Bàn ${tableName}, các món sau cần nhập:\n- ${alerts.join('\n- ')}`,
-              isRead: false,
-              createdAt: serverTimestamp(),
-              createdBy: 'System (Kitchen)'
-          })
-      }
 
       // Finalize Order
       batch.update(doc(db, 'orders', order.id), {
@@ -372,7 +233,7 @@ export default function Kitchen({ user, showToast }) {
       await batch.commit()
   }
 
-  // 4. Handler: Hoàn thành
+  // 3. Handler: Hoàn thành
   const handleFinishCooking = (order) => {
     const tableName = order.tableName || order.tableId || '???'
     const locationLabel = order.zone ? `${order.zone} - ${tableName}` : `Bàn ${tableName}`
@@ -389,7 +250,7 @@ export default function Kitchen({ user, showToast }) {
                 showToast(`✅ Đã gọi ${waiterName} lấy món!`, "success")
             } catch (error) {
                 console.error("Finish Order Error:", error)
-                showToast("Lỗi khi trừ kho: " + error.message, "error")
+                showToast("Lỗi khi hoàn thành đơn: " + error.message, "error")
             }
         }
     })
@@ -408,7 +269,7 @@ export default function Kitchen({ user, showToast }) {
       <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2"><ChefHat className="text-orange-500" /> Màn hình Bếp</h2>
-          <p className="text-sm text-slate-500">Quản lý nấu nướng & Check kho tự động</p>
+          <p className="text-sm text-slate-500">Quản lý nấu nướng</p>
         </div>
         <div className="text-right">
           <span className="text-2xl font-bold text-orange-600">{orders.length}</span>

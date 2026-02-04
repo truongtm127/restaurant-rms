@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Plus, Search, CheckCircle, ArrowLeft, FilePenLine, X, CreditCard } from 'lucide-react'
 import {
   collection, onSnapshot, addDoc, updateDoc, doc, deleteDoc,
-  getDocs, orderBy, limit, startAfter, serverTimestamp, query, getDoc
+  getDocs, orderBy, limit, startAfter, serverTimestamp, query, getDoc,
+  writeBatch, increment
 } from 'firebase/firestore'
 import { db } from '../../firebase'
 import ItemCard from './ItemCard'
@@ -45,6 +46,10 @@ export default function Menu({
   const [loading, setLoading] = useState(false)
   const [cursor, setCursor] = useState(null)
   
+  // Inventory & Stock Check State
+  const [inventory, setInventory] = useState({})
+  const [committedItems, setCommittedItems] = useState([]) // Các món đã gửi bếp thành công (để tính delta)
+
   // Filter & Sort
   const [q, setQ] = useState('')
   const [category, setCategory] = useState('Tất cả')
@@ -65,6 +70,7 @@ export default function Menu({
   const isManager = user?.role === 'MANAGER'
 
   // --- DATA LOADING ---
+  // 1. Menu Items
   const loadPage = async (reset = false) => {
     setLoading(true)
     try {
@@ -89,7 +95,33 @@ export default function Menu({
     loadPage(true)
   }, [])
 
-  // --- ORDER LISTENER ---
+  // 2. Inventory (Realtime Listener for Stock Check)
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'inventory'), (snap) => {
+      const invMap = {}
+      snap.forEach(d => {
+        invMap[d.id] = d.data() // Lưu toàn bộ data để lấy cả quantity lẫn tên (nếu cần alert)
+      })
+      setInventory(invMap)
+    })
+    return () => unsub()
+  }, [])
+
+  // 3. Committed Items (Lắng nghe đơn gốc để biết cái nào đã trừ kho rồi)
+  useEffect(() => {
+    if (!activeOrderId) {
+        setCommittedItems([])
+        return
+    }
+    const unsub = onSnapshot(doc(db, 'orders', activeOrderId), (snap) => {
+        if (snap.exists()) {
+            setCommittedItems(snap.data().items || [])
+        }
+    })
+    return () => unsub()
+  }, [activeOrderId])
+
+  // --- ORDER LISTENER (Current Cart) ---
   useEffect(() => {
     if (!activeOrderId) {
       setOrderItems([])
@@ -98,7 +130,7 @@ export default function Menu({
     }
     
     setOrderLoading(true)
-    // Listen to subcollection 'items'
+    // Listen to subcollection 'items' (Giỏ hàng tạm)
     const unsub = onSnapshot(collection(db, 'orders', activeOrderId, 'items'), (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       list.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
@@ -126,12 +158,48 @@ export default function Menu({
     
     // Sort logic
     return list.sort((a, b) => {
-      // Available first
       if (a.is_available !== b.is_available) return b.is_available - a.is_available
-      // Then by name
       return (a.name || '').localeCompare(b.name || '')
     })
   }, [items, q, category, sortBy])
+
+  // --- STOCK CHECK HELPER ---
+  const checkStock = (menuItem, qtyToAdd = 1) => {
+    // Nếu món không có công thức, cho qua luôn
+    if (!menuItem.recipe || menuItem.recipe.length === 0) return true
+
+    // 1. Tìm số lượng món này đang có trong giỏ (tạm tính)
+    const currentCartItem = orderItems.find(x => x.menuItemId === menuItem.id)
+    const currentCartQty = currentCartItem ? (currentCartItem.qty || 0) : 0
+
+    // 2. Tìm số lượng món này đã được "Cam kết" (đã gửi bếp và đã trừ kho trước đó)
+    // Dùng activeOrderId để match item trong committedItems
+    // Vì subcollection ID (currentCartItem.id) khớp với ID trong committedItems array
+    let alreadyCommittedQty = 0
+    if (currentCartItem) {
+        const committed = committedItems.find(x => x.id === currentCartItem.id)
+        alreadyCommittedQty = committed ? (committed.qty || 0) : 0
+    }
+
+    // 3. Tính số lượng cần thêm mới so với kho hiện tại
+    // Delta là lượng hàng "Pending" chưa trừ kho
+    const pendingDelta = Math.max(0, currentCartQty - alreadyCommittedQty)
+    const totalNewNeeded = pendingDelta + qtyToAdd
+
+    // 4. Kiểm tra từng nguyên liệu
+    for (const ing of menuItem.recipe) {
+        if (!ing.ingredientId) continue
+        
+        const inventoryItem = inventory[ing.ingredientId]
+        const currentStock = inventoryItem ? Number(inventoryItem.quantity || 0) : 0
+        const requiredAmount = Number(ing.quantity || 0) * totalNewNeeded
+
+        if (currentStock < requiredAmount) {
+             return false // Không đủ hàng
+        }
+    }
+    return true // Đủ hàng
+  }
 
   // --- ACTIONS ---
 
@@ -140,25 +208,55 @@ export default function Menu({
 
     if (hasItems) {
       try {
+        const batch = writeBatch(db)
         const orderRef = doc(db, 'orders', activeOrderId)
-        const orderSnap = await getDoc(orderRef)
-        let finalItems = []
 
-        // Merge current cart items with existing server items (to preserve qtyCompleted)
-        if (orderSnap.exists()) {
-           const currentServerItems = orderSnap.data().items || []
-           finalItems = orderItems.map(cartItem => {
-             const existing = currentServerItems.find(x => x.id === cartItem.id)
+        // 1. Tính toán trừ kho (Inventory Deduction)
+        const inventoryUpdates = {} // Map: ingredientId -> amount to deduct
+        
+        // Tạo danh sách items cuối cùng để lưu vào Order Doc
+        const finalItems = orderItems.map(cartItem => {
+             const existing = committedItems.find(x => x.id === cartItem.id)
+             const previousQty = existing ? (existing.qty || 0) : 0
+             const currentQty = cartItem.qty || 0
+             const delta = currentQty - previousQty
+             
+             // Nếu số lượng tăng lên, cần trừ kho thêm
+             if (delta > 0) {
+                 // Lấy recipe từ cartItem (đã lưu lúc add) hoặc fallback về items list
+                 let recipe = cartItem.recipe
+                 if (!recipe) {
+                    const originalItem = items.find(m => m.id === cartItem.menuItemId)
+                    recipe = originalItem?.recipe || []
+                 }
+
+                 if (recipe && recipe.length > 0) {
+                     recipe.forEach(ing => {
+                         if (ing.ingredientId) {
+                             const amount = (Number(ing.quantity) || 0) * delta
+                             inventoryUpdates[ing.ingredientId] = (inventoryUpdates[ing.ingredientId] || 0) + amount
+                         }
+                     })
+                 }
+             }
+
+             // Cấu trúc item lưu vào mảng items của Order
+             // Giữ nguyên trạng thái nấu của bếp (qtyCompleted) nếu đã có
              return existing 
-               ? { ...existing, qty: cartItem.qty, note: cartItem.note || '' } 
-               : { ...cartItem, qtyCompleted: 0 }
-           })
-        } else {
-           finalItems = orderItems.map(i => ({ ...i, qtyCompleted: 0 }))
+               ? { ...existing, qty: currentQty, note: cartItem.note || '' } 
+               : { ...cartItem, qtyCompleted: 0, qtyAccepted: 0 } // Mới tinh thì chưa nấu, chưa nhận
+        })
+
+        // Add Inventory updates to Batch
+        for (const [ingId, deductAmount] of Object.entries(inventoryUpdates)) {
+            const invRef = doc(db, 'inventory', ingId)
+            // Dùng increment số âm để trừ
+            batch.update(invRef, { quantity: increment(-deductAmount) })
         }
 
-        await updateDoc(orderRef, {
-          status: 'pending',
+        // 2. Cập nhật Order
+        batch.update(orderRef, {
+          status: 'pending', // Chuyển trạng thái để bếp thấy
           kitchenNote: null,
           items: finalItems,
           total: cartTotal,
@@ -166,10 +264,12 @@ export default function Menu({
           updatedAt: serverTimestamp()
         })
         
-        showToast("✅ Đã gửi thực đơn xuống bếp!", "success")
+        await batch.commit()
+        
+        showToast("✅ Đã gửi bếp & Trừ kho thành công!", "success")
       } catch (error) {
         console.error("Send to Kitchen Error:", error)
-        showToast("Lỗi hệ thống khi gửi bếp!", "error")
+        showToast("Lỗi hệ thống: " + error.message, "error")
         return
       }
     } else {
@@ -218,6 +318,12 @@ export default function Menu({
       return showToast('⚠️ Vui lòng chọn bàn trước khi gọi món!', 'error')
     }
     
+    // --- CHECK INVENTORY BEFORE ADDING ---
+    if (!checkStock(m, 1)) {
+        showToast(`⛔ Món "${m.name}" đã hết nguyên liệu!`, 'error')
+        return // CHẶN LẠI
+    }
+
     try {
       const existingItem = orderItems.find(it => it.menuItemId === m.id)
       
@@ -225,8 +331,14 @@ export default function Menu({
         const nextQty = Number(existingItem.qty || 1) + 1
         await updateDoc(doc(db, 'orders', activeOrderId, 'items', existingItem.id), { qty: nextQty })
       } else {
+        // Lưu kèm recipe vào item trong subcollection để sau này trừ kho cho dễ
         await addDoc(collection(db, 'orders', activeOrderId, 'items'), {
-          menuItemId: m.id, name: m.name, price: Number(m.price || 0), qty: 1, note: ''
+          menuItemId: m.id, 
+          name: m.name, 
+          price: Number(m.price || 0), 
+          qty: 1, 
+          note: '',
+          recipe: m.recipe || [] // Important: Cache recipe
         })
       }
 
