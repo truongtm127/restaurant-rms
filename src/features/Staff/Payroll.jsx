@@ -1,10 +1,23 @@
 import React, { useEffect, useState, useMemo } from 'react'
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore'
-import { DollarSign, Calendar, Users, Clock, Search, ArrowRight, Wallet } from 'lucide-react'
+import { DollarSign, Calendar, Users, Clock, Search, ArrowRight, Wallet, Eye, X } from 'lucide-react' //
 import { db } from '../../firebase'
 import { fmtVND, formatDateInput, startOfMonth } from '../../utils/helpers'
 
-// --- SUB-COMPONENT ---
+// --- HELPERS ---
+const formatTime = (timestamp) => {
+  if (!timestamp) return '--:--'
+  const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp)
+  return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })
+}
+
+const formatDate = (timestamp) => {
+  if (!timestamp) return ''
+  const date = timestamp.seconds ? new Date(timestamp.seconds * 1000) : new Date(timestamp)
+  return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+// --- SUB-COMPONENT: StatCard ---
 const StatCard = ({ label, value, sub, icon: Icon, color }) => (
   <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between">
     <div>
@@ -18,11 +31,134 @@ const StatCard = ({ label, value, sub, icon: Icon, color }) => (
   </div>
 )
 
+// --- SUB-COMPONENT: Modal Xem Lịch Sử Chấm Công (ĐÃ FIX) ---
+const AttendanceHistoryModal = ({ staff, dateRange, onClose }) => {
+  const [history, setHistory] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      if (!staff) return
+      setLoading(true)
+      try {
+        // Tạo mốc thời gian từ bộ lọc
+        const start = new Date(dateRange.start)
+        start.setHours(0, 0, 0, 0)
+        
+        const end = new Date(dateRange.end)
+        end.setHours(23, 59, 59, 999)
+
+        // --- FIX: Query đơn giản hóa ---
+        // Chỉ lọc theo userId từ Firestore để tránh lỗi "Missing Index"
+        const q = query(
+          collection(db, 'attendance'),
+          where('userId', '==', staff.id)
+        )
+
+        const snap = await getDocs(q)
+        
+        // Lọc ngày tháng và Sắp xếp ở phía Client (JS)
+        const list = snap.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(item => {
+                if (!item.checkIn) return false
+                const d = item.checkIn.seconds ? new Date(item.checkIn.seconds * 1000) : new Date(item.checkIn)
+                return d >= start && d <= end
+            })
+            .sort((a, b) => {
+                const tA = a.checkIn?.seconds || 0
+                const tB = b.checkIn?.seconds || 0
+                return tB - tA // Mới nhất lên đầu
+            })
+
+        setHistory(list)
+      } catch (error) {
+        console.error("Lỗi lấy lịch sử chi tiết:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchHistory()
+  }, [staff, dateRange])
+
+  if (!staff) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fadeIn">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        {/* Header Modal */}
+        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+          <div>
+            <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+              <Clock size={18} className="text-blue-600"/> Lịch sử chấm công
+            </h3>
+            <p className="text-sm text-slate-500">Nhân viên: <span className="font-bold text-blue-700">{staff.name}</span></p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition text-slate-500">
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body Modal */}
+        <div className="flex-1 overflow-auto p-0 custom-scrollbar">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-white text-slate-500 border-b border-slate-100 sticky top-0 shadow-sm z-10">
+              <tr>
+                <th className="p-4 font-bold bg-slate-50">Ngày</th>
+                <th className="p-4 font-bold text-center bg-slate-50">Bắt đầu</th>
+                <th className="p-4 font-bold text-center bg-slate-50">Kết thúc</th>
+                <th className="p-4 font-bold text-right bg-slate-50">Tổng giờ</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {loading ? (
+                <tr><td colSpan="4" className="p-10 text-center text-slate-400">Đang tải dữ liệu...</td></tr>
+              ) : history.length === 0 ? (
+                <tr><td colSpan="4" className="p-10 text-center text-slate-400">Không có dữ liệu chấm công trong khoảng thời gian này.</td></tr>
+              ) : (
+                history.map((item) => {
+                   let duration = 0
+                   if (item.checkIn && item.checkOut) {
+                      const s = item.checkIn.seconds * 1000
+                      const e = item.checkOut.seconds * 1000
+                      duration = (e - s) / (1000 * 60 * 60)
+                   }
+                   
+                   return (
+                    <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="p-4 text-slate-700 font-medium">{formatDate(item.checkIn)}</td>
+                      <td className="p-4 text-center text-emerald-600 font-bold">{formatTime(item.checkIn)}</td>
+                      <td className="p-4 text-center text-rose-600 font-bold">
+                        {item.checkOut ? formatTime(item.checkOut) : '--:--'}
+                      </td>
+                      <td className="p-4 text-right font-bold text-slate-800">
+                        {duration > 0 ? duration.toFixed(1) : '0.0'} h
+                      </td>
+                    </tr>
+                   )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Footer Modal */}
+        <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-between items-center">
+           <span className="text-xs text-slate-400 italic">Dữ liệu được lọc theo bộ lọc ngày bên ngoài</span>
+           <span className="text-sm text-slate-600">Tổng cộng: <b className="text-blue-700 text-lg">{staff.totalHours.toFixed(1)} giờ</b></span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // --- MAIN COMPONENT ---
 export default function Payroll() {
   const [loading, setLoading] = useState(true)
   const [staffData, setStaffData] = useState([])
   const [filter, setFilter] = useState('')
+  const [selectedStaff, setSelectedStaff] = useState(null)
   
   // Date Filter State
   const [dateRange, setDateRange] = useState({
@@ -52,7 +188,7 @@ export default function Payroll() {
           }
         })
 
-        // 2. Fetch Attendance within Date Range
+        // 2. Fetch Attendance within Date Range (Main Table)
         const start = new Date(dateRange.start)
         start.setHours(0, 0, 0, 0)
         
@@ -114,8 +250,17 @@ export default function Payroll() {
   }, [staffData, filter])
 
   return (
-    <div className="space-y-6 animate-fadeIn pb-10 h-full flex flex-col">
+    <div className="space-y-6 animate-fadeIn pb-10 h-full flex flex-col relative">
       
+      {/* MODAL VIEW */}
+      {selectedStaff && (
+        <AttendanceHistoryModal 
+          staff={selectedStaff} 
+          dateRange={dateRange} 
+          onClose={() => setSelectedStaff(null)} 
+        />
+      )}
+
       {/* HEADER */}
       <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
          <div className="flex items-center gap-4 w-full md:w-auto">
@@ -200,13 +345,14 @@ export default function Payroll() {
                           <th className="p-4 text-center">Tổng giờ</th>
                           <th className="p-4 text-right">Lương/Giờ</th>
                           <th className="p-4 text-right">Thành tiền</th>
+                          <th className="p-4 text-center w-16">Chi tiết</th>
                       </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                       {loading ? (
-                          <tr><td colSpan="6" className="p-10 text-center text-slate-400">Đang tính toán dữ liệu...</td></tr>
+                          <tr><td colSpan="7" className="p-10 text-center text-slate-400">Đang tính toán dữ liệu...</td></tr>
                       ) : displayList.length === 0 ? (
-                          <tr><td colSpan="6" className="p-10 text-center text-slate-400">Không tìm thấy nhân viên nào.</td></tr>
+                          <tr><td colSpan="7" className="p-10 text-center text-slate-400">Không tìm thấy nhân viên nào.</td></tr>
                       ) : (
                           displayList.map(s => {
                               const salary = s.totalHours * s.hourlyRate
@@ -236,6 +382,15 @@ export default function Payroll() {
                                       </td>
                                       <td className="p-4 text-right">
                                           <span className="font-bold text-blue-700 text-lg">{fmtVND(salary)}</span>
+                                      </td>
+                                      <td className="p-4 text-center">
+                                        <button 
+                                          onClick={() => setSelectedStaff(s)}
+                                          className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                                          title="Xem chi tiết"
+                                        >
+                                          <Eye size={20} />
+                                        </button>
                                       </td>
                                   </tr>
                               )

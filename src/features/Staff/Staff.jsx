@@ -11,7 +11,7 @@ import {
 } from 'firebase/firestore'
 import { 
   Plus, Trash2, Edit, Shield, ChefHat, Coffee, Mail, 
-  DollarSign, Search, CheckCircle, AlertCircle, X 
+  DollarSign, Search, CheckCircle, AlertCircle, X, User 
 } from 'lucide-react'
 
 import { db, firebaseConfig } from '../../firebase' 
@@ -42,6 +42,20 @@ const ROLE_CONFIG = {
     Icon: Coffee,
     order: 3
   }
+}
+
+// Hàm lấy thông tin hiển thị cho vai trò (Hỗ trợ vai trò tùy chỉnh)
+const getRoleDisplay = (role) => {
+    if (ROLE_CONFIG[role]) return ROLE_CONFIG[role]
+    
+    // Cấu hình mặc định cho các vai trò khác (Bảo vệ, Tạp vụ...)
+    return {
+        label: role, // Hiển thị tên gốc (VD: Bảo vệ)
+        color: 'bg-slate-50 text-slate-700 border-slate-200',
+        iconBg: 'bg-slate-100 text-slate-500',
+        Icon: User,
+        order: 99
+    }
 }
 
 // --- SUB-COMPONENT: TOAST ---
@@ -86,8 +100,8 @@ export default function Staff({ user }) {
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
       // Sort by Role priority
       list.sort((a, b) => {
-        const orderA = ROLE_CONFIG[a.role]?.order || 99
-        const orderB = ROLE_CONFIG[b.role]?.order || 99
+        const orderA = getRoleDisplay(a.role).order
+        const orderB = getRoleDisplay(b.role).order
         return orderA - orderB
       })
       setStaffList(list)
@@ -134,7 +148,7 @@ export default function Staff({ user }) {
 
         await updateDoc(doc(db, 'users', editingStaff.id), {
             name: data.name,
-            role: data.role,
+            role: data.role, // Lưu trực tiếp tên vai trò (VD: Bảo vệ)
             email: data.email,
             hourlyRate: Number(data.hourlyRate),
             password: newPassword || editingStaff.password,
@@ -158,7 +172,7 @@ export default function Staff({ user }) {
           name: data.name,
           email: data.email,
           password: data.password,
-          role: data.role,
+          role: data.role, // Lưu trực tiếp tên vai trò
           hourlyRate: Number(data.hourlyRate),
           createdAt: serverTimestamp()
         })
@@ -203,7 +217,8 @@ export default function Staff({ user }) {
   
   const displayList = staffList.filter(s => 
     s.name?.toLowerCase().includes(filter.toLowerCase()) || 
-    s.email?.toLowerCase().includes(filter.toLowerCase())
+    s.email?.toLowerCase().includes(filter.toLowerCase()) ||
+    s.role?.toLowerCase().includes(filter.toLowerCase()) // Thêm tìm kiếm theo vai trò
   )
 
   return (
@@ -253,7 +268,7 @@ export default function Staff({ user }) {
             <div className="col-span-full text-center py-10 text-slate-500">Trống.</div>
         ) : (
           displayList.map(s => {
-              const roleInfo = ROLE_CONFIG[s.role] || ROLE_CONFIG.STAFF
+              const roleInfo = getRoleDisplay(s.role) // Sử dụng hàm helper mới
               const RoleIcon = roleInfo.Icon
               
               return (

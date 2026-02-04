@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { X, Lock, DollarSign } from 'lucide-react'
+import { X, Lock, DollarSign, PenTool } from 'lucide-react'
 
 const INITIAL_STATE = {
   name: '', 
@@ -13,9 +13,14 @@ const INPUT_CLASSES = "w-full px-3 py-2 border rounded-lg focus:ring-2 focus:rin
 
 export default function StaffModal({ initialData, onClose, onSave }) {
   const [formData, setFormData] = useState(INITIAL_STATE)
+  const [isCustomRole, setIsCustomRole] = useState(false)
 
   useEffect(() => {
     if (initialData) {
+      // Kiểm tra xem vai trò hiện tại có phải là vai trò chuẩn không
+      const isStandard = ['STAFF', 'KITCHEN', 'MANAGER'].includes(initialData.role)
+      setIsCustomRole(!isStandard)
+
       setFormData({
         name: initialData.name || '',
         email: initialData.email || '',
@@ -25,12 +30,18 @@ export default function StaffModal({ initialData, onClose, onSave }) {
       })
     } else {
       setFormData(INITIAL_STATE)
+      setIsCustomRole(false)
     }
   }, [initialData])
 
   const validateForm = () => {
     if (!initialData && !formData.password) {
         alert("Vui lòng nhập mật khẩu khi tạo mới!")
+        return false
+    }
+    // Nếu là vai trò tùy chỉnh thì không được để trống
+    if (isCustomRole && !formData.role.trim()) {
+        alert("Vui lòng nhập tên vai trò!")
         return false
     }
     return true
@@ -47,6 +58,18 @@ export default function StaffModal({ initialData, onClose, onSave }) {
     const { name, value } = e.target
     const finalValue = name === 'hourlyRate' ? Number(value) : value
     setFormData(prev => ({ ...prev, [name]: finalValue }))
+  }
+
+  // Xử lý khi thay đổi Select Box Vai trò
+  const handleRoleSelect = (e) => {
+      const value = e.target.value
+      if (value === 'OTHER') {
+          setIsCustomRole(true)
+          setFormData(prev => ({ ...prev, role: '' })) // Reset để người dùng tự nhập
+      } else {
+          setIsCustomRole(false)
+          setFormData(prev => ({ ...prev, role: value }))
+      }
   }
 
   const isEditingManager = initialData?.role === 'MANAGER'
@@ -112,10 +135,11 @@ export default function StaffModal({ initialData, onClose, onSave }) {
               <label className="text-sm font-medium text-slate-700 flex items-center gap-2">
                 Vai trò {isEditingManager && <Lock size={12} className="text-amber-500"/>}
               </label>
+              
+              {/* Select Box */}
               <select 
-                name="role" 
-                value={formData.role} 
-                onChange={handleChange} 
+                value={isCustomRole ? 'OTHER' : formData.role} 
+                onChange={handleRoleSelect} 
                 disabled={isEditingManager}
                 className={`${INPUT_CLASSES} bg-white ${isEditingManager ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
               >
@@ -126,9 +150,27 @@ export default function StaffModal({ initialData, onClose, onSave }) {
                     <option value="STAFF">Phục vụ</option>
                     <option value="KITCHEN">Bếp</option>
                     <option value="MANAGER">Quản lý</option>
+                    <option value="OTHER">Khác (Tự điền)</option>
                   </>
                 )}
               </select>
+
+              {/* Input tùy chỉnh hiện ra khi chọn "Khác" */}
+              {isCustomRole && !isEditingManager && (
+                  <div className="mt-2 animate-fadeIn">
+                      <div className="relative">
+                        <PenTool size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+                        <input 
+                            name="role"
+                            value={formData.role}
+                            onChange={handleChange}
+                            placeholder="Nhập tên vai trò (VD: Bảo vệ)"
+                            className={`${INPUT_CLASSES} pl-9 bg-slate-50 border-emerald-200 text-emerald-700 font-bold placeholder:font-normal`}
+                            autoFocus
+                        />
+                      </div>
+                  </div>
+              )}
             </div>
 
             <div className="space-y-1">
